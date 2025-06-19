@@ -1,4 +1,4 @@
-.PHONY: components server targets
+.PHONY: components server targets proto tools/bin/protoc-gen-go tools/bin/protoc-gen-go-grpc tools/bin/protoc-gen-grpc-gateway
 .DEFAULT_GOAL := default
 
 LANG=C
@@ -20,6 +20,7 @@ GOENV   := GO111MODULE=on CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH)
 GO      := $(GOENV) go
 GOBUILD := $(GO) build $(BUILD_FLAGS)
 GOTEST  := GO111MODULE=on CGO_ENABLED=1 go test -p 3
+GOOGLE_PROTO_PATH := $(shell go list -m -f '{{.Dir}}' google.golang.org/genproto)
 SHELL   := /usr/bin/env bash
 
 _COMMIT := $(shell git describe --no-match --always --dirty)
@@ -72,6 +73,16 @@ dm:
 ctl:
 	@# Target: build the tiup-ctl component
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o bin/tiup-ctl ./components/ctl
+
+proto: tools/bin/protoc-gen-go tools/bin/protoc-gen-go-grpc tools/bin/protoc-gen-grpc-gateway
+	@# Target: generate protobuf files
+	@echo "Generating protobuf files..."
+	protoc -I. \
+		-I$(GOOGLE_PROTO_PATH) \
+		--go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		--grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative \
+		pkg/cluster/api/dmpb/dmmaster.proto
 
 server:
 	@# Target: build the tiup-server component
@@ -136,6 +147,18 @@ failpoint-disable: tools/bin/failpoint-ctl
 tools/bin/failpoint-ctl: go.mod
 	@# Target: build the failpoint-ctl utility
 	$(GO) build -o $@ github.com/pingcap/failpoint/failpoint-ctl
+
+tools/bin/protoc-gen-go:
+	@# Target: install protoc-gen-go
+	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
+tools/bin/protoc-gen-go-grpc:
+	@# Target: install protoc-gen-go-grpc
+	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+tools/bin/protoc-gen-grpc-gateway:
+	@# Target: install protoc-gen-grpc-gateway
+	$(GO) install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
 
 fmt:
 	@# Target: run the go formatter utility
