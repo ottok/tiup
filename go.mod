@@ -44,7 +44,7 @@ require (
 	github.com/prometheus/client_model v0.3.0
 	github.com/prometheus/common v0.42.0
 	github.com/prometheus/prom2json v1.3.2
-	github.com/r3labs/diff/v2 v2.15.1
+	github.com/r3labs/diff/v3 v3.0.0
 	github.com/relex/aini v1.5.0
 	github.com/sergi/go-diff v1.3.1
 	github.com/sethvargo/go-password v0.2.0

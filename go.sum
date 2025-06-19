@@ -471,8 +471,8 @@ github.com/prometheus/common v0.42.0 h1:EKsfXEYo4JpWMHH5cg+KOUWeuJSov1Id8zGR8eeI
 github.com/prometheus/common v0.42.0/go.mod h1:xBwqVerjNdUDjgODMpudtOMwlOwf2SaTr1yjz4b7Zbc=
 github.com/prometheus/prom2json v1.3.2 h1:heRKAGHWqm8N3IaRDDNBBJNVS6a9mLdsTlFhvOaNGb0=
 github.com/prometheus/prom2json v1.3.2/go.mod h1:TQ9o1OxW0eyhl4BBpVpGGsavyJfTDETna4/d0Kib+V0=
-github.com/r3labs/diff/v2 v2.15.1 h1:EOrVqPUzi+njlumoqJwiS/TgGgmZo83619FNDB9xQUg=
-github.com/r3labs/diff/v2 v2.15.1/go.mod h1:I8noH9Fc2fjSaMxqF3G2lhDdC0b+JXCfyx85tWFM9kc=
+github.com/r3labs/diff/v3 v3.0.0 h1:ZhPwNxn9gW5WLPBV9GCYaVbMdLOSmJ0DeKdCiSbOLUI=
+github.com/r3labs/diff/v3 v3.0.0/go.mod h1:wCkTySAiDnZao1sZrVTDIzuzgLZ+cNPGn3LC8DlIg5g=
 github.com/relex/aini v1.5.0 h1:6euW/m6b2Y2hkSY8rsyGzcYGpMUWx2dnTzXgQvunTzQ=
 github.com/relex/aini v1.5.0/go.mod h1:qUMEteDeWDTMHUP7WsaOTc7gawELU5Gcrn2YHz4EAr0=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=

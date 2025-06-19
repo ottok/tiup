@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/pingcap/tiup/pkg/set"
-	"github.com/r3labs/diff/v2"
+	"github.com/r3labs/diff/v3" // Removed alias, will use 'diff.' directly
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -75,8 +75,10 @@ func validateExpandable(fromField, toField any) bool {
 // ValidateSpecDiff checks and validates the new spec to see if the modified
 // keys are all marked as editable
 func ValidateSpecDiff(s1, s2 any) error {
+	// The diff.NewDiffer function in v3 takes options directly, not a variadic list of options.
+	// Also, the TagName option is now diff.WithTagName.
 	differ, err := diff.NewDiffer(
-		diff.TagName(validateTagName),
+		diff.WithTagName(validateTagName),
 		diff.AllowTypeMismatch(true),
 	)
 	if err != nil {
@@ -96,7 +98,7 @@ func ValidateSpecDiff(s1, s2 any) error {
 		if len(c.Path) > 0 {
 			_, leafCtl := parseValidateTagValue(c.Path[len(c.Path)-1])
 			// c.Path will be the tag value if TagName matched on the field
-			if c.Type == diff.UPDATE && leafCtl == validateTagEditable {
+			if c.Type == diff.Update && leafCtl == validateTagEditable {
 				// If the field is marked as editable, it is allowed to be modified no matter
 				// its parent level element is marked as editable or not
 				continue
@@ -123,7 +125,7 @@ func ValidateSpecDiff(s1, s2 any) error {
 				}
 			}
 			// if the path has any ignorable item, just ignore it
-			if pathIgnore || (pathEditable && (c.Type == diff.CREATE || c.Type == diff.DELETE)) || pathExpandable {
+			if pathIgnore || (pathEditable && (c.Type == diff.Create || c.Type == diff.Delete)) || pathExpandable {
 				// If *every* parent elements on the path are all marked as editable,
 				// AND the field itself is marked as editable, it is allowed to add or delete
 				continue
@@ -132,11 +134,11 @@ func ValidateSpecDiff(s1, s2 any) error {
 
 		// build error messages
 		switch c.Type {
-		case diff.CREATE:
+		case diff.Create:
 			msg = append(msg, fmt.Sprintf("added %s with value '%v'", buildFieldPath(c.Path), c.To))
-		case diff.DELETE:
+		case diff.Delete:
 			msg = append(msg, fmt.Sprintf("removed %s with value '%v'", buildFieldPath(c.Path), c.From))
-		case diff.UPDATE:
+		case diff.Update:
 			msg = append(msg, fmt.Sprintf("%s changed from '%v' to '%v'", buildFieldPath(c.Path), c.From, c.To))
 		}
 	}
