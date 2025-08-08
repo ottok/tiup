@@ -1,0 +1,80 @@
+From: =?utf-8?b?T3R0byBLZWvDpGzDpGluZW4=?= <otto@kekalainen.net>
+Date: Sat, 9 Aug 2025 00:20:18 +0000
+Subject: Fix compilation errors with gopsutil v4.25.2 library
+
+As the golang-github-shirou-gopsutil-dev package v4.25.2 in Debian is
+newer than the v3.21.11 in go.mod of TiUP, the Debian build failed on:
+
+    src/github.com/pingcap/tiup/pkg/insight/process.go:165:24: cannot use proc.Status() (value of type []string) as string value in assignment
+    src/github.com/pingcap/tiup/pkg/insight/process_linux.go:24:38: undefined: process.ClockTicks
+
+Apply these changes on TiUP to make it compatible:
+
+- The `proc.Status()` method now returns a slice of strings (`[]string`)
+  instead of a single string. Update the assignment to take the first
+  element of the slice, assuming it contains the primary status
+  information. Add a check for an empty slice to prevent panics.
+
+- The `process.ClockTicks` constant and the related logic for parsing
+  `/proc/[pid]/stat` are no longer supported. Replace this with a call
+  to `proc.CreateTime()`, which provides the process creation time in
+  milliseconds since the Unix epoch. Convert this value to seconds for
+  the `StartTime` field.
+
+Additionally, remove unused import statements to avoid failures on:
+
+    src/github.com/pingcap/tiup/pkg/insight/process_linux.go:8:2: "os" imported and not used
+    src/github.com/pingcap/tiup/pkg/insight/process_linux.go:9:2: "strconv" imported and not used
+    src/github.com/pingcap/tiup/pkg/insight/process_linux.go:10:2: "strings" imported and not used
+---
+ pkg/insight/process.go       |  5 ++++-
+ pkg/insight/process_linux.go | 14 +++-----------
+ 2 files changed, 7 insertions(+), 12 deletions(-)
+
+diff --git a/pkg/insight/process.go b/pkg/insight/process.go
+index 82fd717..24c9fe5 100644
+--- a/pkg/insight/process.go
++++ b/pkg/insight/process.go
+@@ -162,7 +162,10 @@ func (proc_stat *ProcessStat) getProcessStat(proc *process.Process) {
+ 	proc_stat.Name, _ = proc.Name()
+ 	proc_stat.Exec, _ = proc.Exe()
+ 	proc_stat.Cmdline, _ = proc.Cmdline()
+-	proc_stat.Status, _ = proc.Status()
++	statuses, _ := proc.Status()
++	if len(statuses) > 0 {
++		proc_stat.Status = statuses[0]
++	}
+ 	proc_stat.StartTime, _ = getProcStartTime(proc)
+ 	proc_stat.CPUTimes, _ = proc.Times()
+ 	proc_stat.Memory, _ = proc.MemoryInfo()
+diff --git a/pkg/insight/process_linux.go b/pkg/insight/process_linux.go
+index 9c8083c..9bea4c2 100644
+--- a/pkg/insight/process_linux.go
++++ b/pkg/insight/process_linux.go
+@@ -5,23 +5,15 @@ package insight
+ 
+ import (
+ 	"log"
+-	"os"
+-	"strconv"
+-	"strings"
+ 
+ 	"github.com/shirou/gopsutil/process"
+ )
+ 
+ func getProcStartTime(proc *process.Process) (float64, error) {
+-	statPath := GetProcPath(strconv.Itoa(int(proc.Pid)), "stat")
+-	contents, err := os.ReadFile(statPath)
++	createTimeMs, err := proc.CreateTime()
+ 	if err != nil {
+-		log.Fatal(err)
++		log.Fatal(err) // Matches existing error handling behavior
+ 		return 0, err
+ 	}
+-	fields := strings.Fields(string(contents))
+-	if startTime, err := strconv.ParseFloat(fields[21], 64); err == nil {
+-		return startTime / float64(process.ClockTicks), err
+-	}
+-	return 0, err
++	return float64(createTimeMs) / 1000.0, nil // Convert milliseconds to seconds
+ }

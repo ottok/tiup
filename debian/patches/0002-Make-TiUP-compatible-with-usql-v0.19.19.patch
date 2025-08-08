@@ -1,0 +1,53 @@
+From: =?utf-8?b?T3R0byBLZWvDpGzDpGluZW4=?= <otto@kekalainen.net>
+Date: Tue, 26 Aug 2025 04:37:43 +0000
+Subject: Make TiUP compatible with usql v0.19.19
+
+As the  golang-github-xo-usql-dev package v0.19.19 in Debian is
+newer than the v0.9.5 in go.mod of TiUP, the Debian build failed on:
+
+    src/github.com/pingcap/tiup/components/client/main.go:98:33: not enough arguments in call to rline.New
+    	have (bool, string, string)
+    	want (bool, bool, bool, string, string)
+    src/github.com/pingcap/tiup/components/client/main.go:102:70: not enough arguments in call to handler.New
+    	have (rline.IO, *user.User, string, bool)
+    	want (rline.IO, *user.User, string, billy.Filesystem, bool)
+
+Apply these changes on TiUP to make it compatible:
+
+- `rline.New` now requires two additional boolean arguments. These are
+  set to `false` as safe defaults.
+
+- `handler.New` now requires a `billy.Filesystem` argument. This is
+  provided by importing `osfs` and creating a new `osfs.New` instance
+  using the instance data directory.
+---
+ components/client/main.go | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/components/client/main.go b/components/client/main.go
+index 1e03eb0..a12d68a 100644
+--- a/components/client/main.go
++++ b/components/client/main.go
+@@ -23,6 +23,7 @@ import (
+ 	"os/user"
+ 	"path"
+ 
++	"github.com/go-git/go-billy/v5/osfs"
+ 	ui "github.com/gizak/termui/v3"
+ 	"github.com/gizak/termui/v3/widgets"
+ 	"github.com/pingcap/tiup/pkg/environment"
+@@ -95,11 +96,12 @@ func connect(target string) error {
+ 	if err != nil {
+ 		return fmt.Errorf("can't get current user: %s", err.Error())
+ 	}
+-	l, err := rline.New(false, "", env.HistoryFile(u))
++	l, err := rline.New(false, false, false, "", env.HistoryFile(u))
+ 	if err != nil {
+ 		return fmt.Errorf("can't open history file: %s", err.Error())
+ 	}
+-	h := handler.New(l, u, os.Getenv(localdata.EnvNameInstanceDataDir), true)
++	dataDir := os.Getenv(localdata.EnvNameInstanceDataDir)
++	h := handler.New(l, u, dataDir, osfs.New(dataDir), true)
+ 	if err = h.Open(context.TODO(), ep.dsn); err != nil {
+ 		return fmt.Errorf("can't open connection to %s: %s", ep.dsn, err.Error())
+ 	}

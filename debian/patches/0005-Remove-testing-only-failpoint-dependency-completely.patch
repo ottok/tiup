@@ -1,0 +1,242 @@
+From: =?utf-8?b?T3R0byBLZWvDpGzDpGluZW4=?= <otto@kekalainen.net>
+Date: Mon, 6 Oct 2025 00:57:03 +0000
+Subject: Remove testing-only failpoint dependency completely
+
+The `github.com/pingcap/failpoint` module is a testing-only dependency used for
+injecting failures during tests. Remove it entirely to reduce the dependency
+footprint.
+
+---
+ Makefile                         | 22 +++++-----------------
+ components/client/Makefile       | 22 +++++-----------------
+ go.mod                           |  2 --
+ go.sum                           |  2 --
+ pkg/cluster/executor/executor.go | 16 ----------------
+ pkg/utils/mock/mock.go           | 31 +++++--------------------------
+ 6 files changed, 15 insertions(+), 80 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index ee4bd71..2a366b2 100644
+--- a/Makefile
++++ b/Makefile
+@@ -35,9 +35,6 @@ LDFLAGS += $(EXTRA_LDFLAGS)
+ 
+ FILES   := $$(find . -name "*.go")
+ 
+-FAILPOINT_ENABLE  := $$(go tool github.com/pingcap/failpoint/failpoint-ctl enable)
+-FAILPOINT_DISABLE := $$(go tool github.com/pingcap/failpoint/failpoint-ctl disable)
+-
+ default: check build
+ 	@# Target: run the checks and then build.
+ 
+@@ -106,8 +103,8 @@ clean:
+ 	@rm -rf cover
+ 	@rm -rf tests/*/{bin/*.test,logs,cover/*.out}
+ 
+-test: failpoint-enable run-tests failpoint-disable
+-	@# Target: run tests with failpoint enabled
++test: run-tests
++	@# Target: run tests
+ 	$(MAKE) -C components/client ${MAKECMDGOALS}
+ 
+ # TODO: refactor integration tests base on v1 manifest
+@@ -121,18 +118,9 @@ unit-test:
+ 	mkdir -p cover
+ 	TIUP_HOME=$(shell pwd)/tests/tiup $(GOTEST) ./... -covermode=count -coverprofile cover/cov.unit-test.out
+ 
+-race: failpoint-enable
+-	@# Target: run race check with failpoint enabled
+-	TIUP_HOME=$(shell pwd)/tests/tiup $(GOTEST) -race ./...  || { $(FAILPOINT_DISABLE); exit 1; }
+-	@$(FAILPOINT_DISABLE)
+-
+-failpoint-enable:
+-	@# Target: enable failpoint
+-	@$(FAILPOINT_ENABLE)
+-
+-failpoint-disable:
+-	@# Target: disable failpoint
+-	@$(FAILPOINT_DISABLE)
++race:
++	@# Target: run race check
++	TIUP_HOME=$(shell pwd)/tests/tiup $(GOTEST) -race ./...
+ 
+ fmt:
+ 	@# Target: run the go formatter utility
+diff --git a/components/client/Makefile b/components/client/Makefile
+index 52d93f1..d7d8614 100644
+--- a/components/client/Makefile
++++ b/components/client/Makefile
+@@ -33,9 +33,6 @@ LDFLAGS += $(EXTRA_LDFLAGS)
+ 
+ FILES   := $$(find . -name "*.go")
+ 
+-FAILPOINT_ENABLE  := $$(go tool github.com/pingcap/failpoint/failpoint-ctl enable)
+-FAILPOINT_DISABLE := $$(go tool github.com/pingcap/failpoint/failpoint-ctl disable)
+-
+ default: check build
+ 	@# Target: run the checks and then build.
+ 
+@@ -73,8 +70,8 @@ clean:
+ 	@rm -rf bin
+ 	@rm -rf tests/*/{bin/*.test,logs}
+ 
+-test: failpoint-enable run-tests failpoint-disable
+-	@# Target: run tests with failpoint enabled
++test: run-tests
++	@# Target: run tests
+ 
+ # TODO: refactor integration tests base on v1 manifest
+ # run-tests: unit-test integration_test
+@@ -87,18 +84,9 @@ unit-test:
+ 	mkdir -p ../../cover
+ 	TIUP_HOME=$(shell pwd)/../../tests/tiup $(GOTEST) ./... -covermode=count -coverprofile ../../cover/cov.unit-test.client.out
+ 
+-race: failpoint-enable
+-	@# Target: run race check with failpoint enabled
+-	TIUP_HOME=$(shell pwd)/../../tests/tiup $(GOTEST) -race ./...  || { $(FAILPOINT_DISABLE); exit 1; }
+-	@$(FAILPOINT_DISABLE)
+-
+-failpoint-enable:
+-	@# Target: enable failpoint
+-	@$(FAILPOINT_ENABLE)
+-
+-failpoint-disable:
+-	@# Target: disable failpoint
+-	@$(FAILPOINT_DISABLE)
++race:
++	@# Target: run race check
++	TIUP_HOME=$(shell pwd)/../../tests/tiup $(GOTEST) -race ./...
+ 
+ fmt:
+ 	@# Target: run the go formatter utility
+diff --git a/go.mod b/go.mod
+index 8006568..da4b941 100644
+--- a/go.mod
++++ b/go.mod
+@@ -30,7 +30,6 @@ require (
+ 	github.com/minio/minio-go/v7 v7.0.52
+ 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db
+ 	github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee
+-	github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86
+ 	github.com/pingcap/fn v1.0.0
+ 	github.com/pingcap/kvproto v0.0.0-20230331024443-349815129e6d
+ 	github.com/prometheus/client_model v0.3.0
+@@ -140,5 +139,4 @@ require (
+ 
+ tool (
+ 	github.com/mgechev/revive
+-	github.com/pingcap/failpoint/failpoint-ctl
+ )
+diff --git a/go.sum b/go.sum
+index 644de5e..41f8488 100644
+--- a/go.sum
++++ b/go.sum
+@@ -410,8 +410,6 @@ github.com/pierrec/lz4/v4 v4.1.18 h1:xaKrnTkyoqfh1YItXl56+6KJNVYWlEEPuAQW9xsplYQ
+ github.com/pierrec/lz4/v4 v4.1.18/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
+ github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee h1:/IDPbpzkzA97t1/Z1+C3KlxbevjMeaI6BQYxvivu4u8=
+ github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee/go.mod h1:X2r9ueLEUZgtx2cIogM0v4Zj5uvvzhuuiu7Pn8HzMPg=
+-github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86 h1:tdMsjOqUR7YXHoBitzdebTvOjs/swniBTOLy5XiMtuE=
+-github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86/go.mod h1:exzhVYca3WRtd6gclGNErRWb1qEgff3LYta0LvRmON4=
+ github.com/pingcap/fn v1.0.0 h1:CyA6AxcOZkQh52wIqYlAmaVmF6EvrcqFywP463pjA8g=
+ github.com/pingcap/fn v1.0.0/go.mod h1:u9WZ1ZiOD1RpNhcI42RucFh/lBuzTu6rw88a+oF2Z24=
+ github.com/pingcap/kvproto v0.0.0-20230331024443-349815129e6d h1:QR9Gk/Hi7DU399ec81cG7b3X/Umwv8FIcyx5WwD+O7M=
+diff --git a/pkg/cluster/executor/executor.go b/pkg/cluster/executor/executor.go
+index 7c48f84..3ad0254 100644
+--- a/pkg/cluster/executor/executor.go
++++ b/pkg/cluster/executor/executor.go
+@@ -17,15 +17,12 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"net"
+-	"os"
+ 	"strings"
+ 	"time"
+ 
+ 	"github.com/joomcode/errorx"
+ 	"github.com/pingcap/errors"
+-	"github.com/pingcap/failpoint"
+ 	"github.com/pingcap/tiup/pkg/cluster/ctxt"
+-	"github.com/pingcap/tiup/pkg/localdata"
+ )
+ 
+ // SSHType represent the type of the channel used by ssh
+@@ -60,19 +57,6 @@ func New(etype SSHType, sudo bool, c SSHConfig) (ctxt.Executor, error) {
+ 		etype = SSHTypeBuiltin
+ 	}
+ 
+-	// Used in integration testing, to check if native ssh client is really used when it need to be.
+-	failpoint.Inject("assertNativeSSH", func() {
+-		// XXX: We call system executor 'native' by mistake in commit f1142b1
+-		// this should be fixed after we remove --native-ssh flag
+-		if etype != SSHTypeSystem {
+-			msg := fmt.Sprintf(
+-				"native ssh client should be used in this case, os.Args: %s, %s = %s",
+-				os.Args, localdata.EnvNameNativeSSHClient, os.Getenv(localdata.EnvNameNativeSSHClient),
+-			)
+-			panic(msg)
+-		}
+-	})
+-
+ 	// set default values
+ 	if c.Port <= 0 {
+ 		c.Port = 22
+diff --git a/pkg/utils/mock/mock.go b/pkg/utils/mock/mock.go
+index 1232c04..ee992a6 100644
+--- a/pkg/utils/mock/mock.go
++++ b/pkg/utils/mock/mock.go
+@@ -14,11 +14,7 @@
+ package mock
+ 
+ import (
+-	"path"
+-	"reflect"
+ 	"sync"
+-
+-	"github.com/pingcap/failpoint"
+ )
+ 
+ // Finalizer represent the function that clean a mock point
+@@ -52,38 +48,21 @@ func (p *mockPoints) clr(fpname string) {
+ 
+ var points = mockPoints{m: make(map[string]any)}
+ 
+-// On inject a failpoint
++// On returns a mock value if one is registered.
+ func On(fpname string) any {
+-	var ret any
+-	failpoint.Inject(fpname, func() {
+-		ret = points.get(fpname)
+-	})
+-	return ret
++	return points.get(fpname)
+ }
+ 
+-// With enable failpoint and provide a value
++// With registers a mock value for a given key.
+ func With(fpname string, value any) Finalizer {
+-	if err := failpoint.Enable(failpath(fpname), "return(true)"); err != nil {
+-		panic(err)
+-	}
+ 	points.set(fpname, value)
+ 	return func() {
+-		if err := Reset(fpname); err != nil {
+-			panic(err)
+-		}
++		points.clr(fpname)
+ 	}
+ }
+ 
+-// Reset disable failpoint and remove mock value
++// Reset removes a mock value.
+ func Reset(fpname string) error {
+-	if err := failpoint.Disable(failpath(fpname)); err != nil {
+-		return err
+-	}
+ 	points.clr(fpname)
+ 	return nil
+ }
+-
+-func failpath(fpname string) string {
+-	type em struct{}
+-	return path.Join(reflect.TypeOf(em{}).PkgPath(), fpname)
+-}

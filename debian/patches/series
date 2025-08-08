@@ -1,0 +1,7 @@
+0001-Fix-compilation-errors-with-gopsutil-v4.25.2-library.patch
+0002-Make-TiUP-compatible-with-usql-v0.19.19.patch
+0003-Fix-minor-typos.patch
+0004-Skip-online-repository-interaction-for-packaged-buil.patch
+0005-Remove-testing-only-failpoint-dependency-completely.patch
+0006-Remove-tiup-client-component.patch
+0007-Remove-appleboy-easyssh-proxy-dependency.patch

@@ -1,0 +1,35 @@
+From: =?utf-8?b?T3R0byBLZWvDpGzDpGluZW4=?= <otto@kekalainen.net>
+Date: Fri, 8 Aug 2025 18:11:59 -0700
+Subject: Fix minor typos
+
+---
+ pkg/cluster/manager/upgrade.go | 2 +-
+ pkg/repository/mirror.go       | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/cluster/manager/upgrade.go b/pkg/cluster/manager/upgrade.go
+index f56b61d..100dfa9 100644
+--- a/pkg/cluster/manager/upgrade.go
++++ b/pkg/cluster/manager/upgrade.go
+@@ -334,7 +334,7 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
+ 					}()
+ 					select {
+ 					case <-time.After(restartTimeout):
+-						fmt.Printf("\nTimeout, continueing\n")
++						fmt.Printf("\nTimeout, continuing\n")
+ 					case <-ch:
+ 					}
+ 				}
+diff --git a/pkg/repository/mirror.go b/pkg/repository/mirror.go
+index 90309a2..a0a381a 100644
+--- a/pkg/repository/mirror.go
++++ b/pkg/repository/mirror.go
+@@ -420,7 +420,7 @@ func (l *httpMirror) Publish(manifest *v1manifest.Manifest, info model.Component
+ 		defer resp.Body.Close()
+ 
+ 		if resp.StatusCode >= 300 {
+-			return errors.Errorf("error on uplaod tarball, server returns %d", resp.StatusCode)
++			return errors.Errorf("error on upload tarball, server returns %d", resp.StatusCode)
+ 		}
+ 	}
+ 

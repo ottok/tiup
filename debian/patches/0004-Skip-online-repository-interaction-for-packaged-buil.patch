@@ -1,0 +1,175 @@
+From: =?utf-8?b?T3R0byBLZWvDpGzDpGluZW4=?= <otto@kekalainen.net>
+Date: Fri, 8 Aug 2025 17:41:22 -0700
+Subject: Skip online repository interaction for packaged builds
+
+Enable TiUP to operate correctly and robustly when installed via an
+external package manager (e.g., Debian, RPM, Homebrew). Allow TiUP to
+run without requiring network access to its online repository for
+initial setup or updates, which is crucial for production systems and
+environments with restricted connectivity.
+
+Achieve this by introducing the boolean flag `IsPackagedBuild`, which is
+intended to be hard-coded to `true` in binaries produced by package
+maintainers.
+
+When `IsPackagedBuild` is true:
+
+- The initial environment setup skips connecting to the online
+  repository, relying instead on local files.
+
+- The automatic update check before running a component is skipped.
+
+- A message is printed to stderr indicating that online interaction is
+  skipped, informing the user of the different behavior.
+
+- Functions related to *forced* self-updating TiUP return an error,
+  explicitly disabling these operations in packaged builds. Users should
+  still be able to install/update when explicitly running those
+  commands.
+
+- Use the system-wide location `/usr/share/tiup/root.json` for initial
+  trust setup and assume this file came with the package. This aligns
+  with typical system package practices.
+---
+ cmd/list.go                                  | 22 +++++++++++-----------
+ pkg/environment/env.go                       | 14 ++++++++++++++
+ pkg/exec/run.go                              |  5 +++++
+ pkg/repository/v1_repository.go              |  5 +++++
+ pkg/repository/v1manifest/local_manifests.go |  4 ++--
+ 5 files changed, 37 insertions(+), 13 deletions(-)
+
+diff --git a/cmd/list.go b/cmd/list.go
+index a2c48c9..f1f7872 100644
+--- a/cmd/list.go
++++ b/cmd/list.go
+@@ -90,7 +90,8 @@ func (lr *listResult) print() {
+ }
+ 
+ func showComponentList(env *environment.Environment, opt listOptions) (*listResult, error) {
+-	if !opt.installedOnly {
++	// Skip online update in packaged builds
++	if !opt.installedOnly && !environment.IsPackagedBuild {
+ 		err := env.V1Repository().UpdateComponentManifests()
+ 		if err != nil {
+ 			tui.ColorWarningMsg.Fprint(os.Stderr, "Warn: Update component manifest failed, err_msg=[", err.Error(), "]\n")
+@@ -182,8 +183,16 @@ func showComponentList(env *environment.Environment, opt listOptions) (*listResu
+ }
+ 
+ func showComponentVersions(env *environment.Environment, component string, opt listOptions) (*listResult, error) {
++	versions, err := env.Profile().InstalledVersions(component)
++	if err != nil {
++		return nil, err
++	}
++	installed := set.NewStringSet(versions...)
++
++	var cmpTable [][]string
++	cmpTable = append(cmpTable, []string{"Version", "Installed", "Release", "Platforms"})
++
+ 	var comp *v1manifest.Component
+-	var err error
+ 	if opt.installedOnly {
+ 		comp, err = env.V1Repository().LocalComponentManifest(component, false)
+ 	} else {
+@@ -193,15 +202,6 @@ func showComponentVersions(env *environment.Environment, component string, opt l
+ 		return nil, errors.Annotate(err, "failed to fetch component")
+ 	}
+ 
+-	versions, err := env.Profile().InstalledVersions(component)
+-	if err != nil {
+-		return nil, err
+-	}
+-	installed := set.NewStringSet(versions...)
+-
+-	var cmpTable [][]string
+-	cmpTable = append(cmpTable, []string{"Version", "Installed", "Release", "Platforms"})
+-
+ 	platforms := make(map[string][]string)
+ 	released := make(map[string]string)
+ 
+diff --git a/pkg/environment/env.go b/pkg/environment/env.go
+index 69d0136..0ee6788 100644
+--- a/pkg/environment/env.go
++++ b/pkg/environment/env.go
+@@ -33,6 +33,10 @@ import (
+ var (
+ 	// ErrInstallFirst indicates that a component/version is not installed
+ 	ErrInstallFirst = errors.New("component not installed")
++
++	// IsPackagedBuild is hard-coded to 'true' in binaries produced by packaged builds
++    // (e.g., Debian, RPM, Homebrew) to change their behavior to be more like real system programs.
++	IsPackagedBuild = true
+ )
+ 
+ // Mirror return mirror of tiup.
+@@ -81,6 +85,13 @@ func InitEnv(options repository.Options, mOpt repository.MirrorOptions) (*Enviro
+ 		return env, nil
+ 	}
+ 
++	// Always initialize the repository. In packaged builds,
++	// specific functions (like automatic updates) will check IsPackagedBuild
++	// and adapt their behavior. Explicit install/list should work.
++	if IsPackagedBuild {
++		fmt.Fprintln(os.Stderr, "Online version check and repository interaction skipped in packaged build.")
++	}
++
+ 	initRepo := time.Now()
+ 	profile := localdata.InitProfile()
+ 
+@@ -148,6 +159,9 @@ func (env *Environment) UpdateComponents(specs []string, nightly, force bool) er
+ 
+ // SelfUpdate updates TiUP.
+ func (env *Environment) SelfUpdate() error {
++	if IsPackagedBuild {
++		return errors.New("tiup self-update is disabled in this packaged build")
++	}
+ 	if err := env.v1Repo.DownloadTiUP(env.LocalPath("bin")); err != nil {
+ 		return err
+ 	}
+diff --git a/pkg/exec/run.go b/pkg/exec/run.go
+index 7cce7a4..a6d82af 100644
+--- a/pkg/exec/run.go
++++ b/pkg/exec/run.go
+@@ -173,6 +173,11 @@ func PrepareCommand(p *PrepareCommandParams) (*exec.Cmd, error) {
+ }
+ 
+ func cmdCheckUpdate(component string, version utils.Version) {
++	// Skip online check in binaries installed by a package manager
++	if environment.IsPackagedBuild {
++		return
++	}
++
+ 	const (
+ 		slowTimeout   = 1 * time.Second // Timeout to display checking message
+ 		cancelTimeout = 2 * time.Second // Timeout to cancel the check
+diff --git a/pkg/repository/v1_repository.go b/pkg/repository/v1_repository.go
+index e5fd658..877285b 100644
+--- a/pkg/repository/v1_repository.go
++++ b/pkg/repository/v1_repository.go
+@@ -541,6 +541,11 @@ func (r *V1Repository) PurgeTimestamp() {
+ // has the same value of our local one. (not hashing the snapshot file itself)
+ // Return weather the manifest is changed compared to the one in local ts and the FileHash of snapshot.
+ func (r *V1Repository) fetchTimestamp() (changed bool, manifest *v1manifest.Manifest, err error) {
++	// Ideally a repository check was not mandatory to simply run a program, but as it is,
++	// an uninitialized repository would cause a nil pointer dereference, so return an error.
++	if r == nil {
++		return false, nil, errors.New("repo is nil")
++	}
+ 	// check cache first
+ 	if r.timestamp != nil {
+ 		return false, r.timestamp, nil
+diff --git a/pkg/repository/v1manifest/local_manifests.go b/pkg/repository/v1manifest/local_manifests.go
+index a7c3239..0d50a04 100644
+--- a/pkg/repository/v1manifest/local_manifests.go
++++ b/pkg/repository/v1manifest/local_manifests.go
+@@ -198,9 +198,9 @@ func (ms *FsManifests) load(filename string) (string, error) {
+ 	file, err := os.Open(fullPath)
+ 	if err != nil {
+ 		if os.IsNotExist(err) {
+-			// Use the hardcode root.json if there is no root.json currently
++			// Use system root.json if none was found in the local profile directory
+ 			if filename == ManifestFilenameRoot {
+-				initRoot, err := filepath.Abs(filepath.Join(ms.profile.Root(), "bin/root.json"))
++				initRoot, err := filepath.Abs(filepath.Join("/usr/share/tiup/root.json"))
+ 				if err != nil {
+ 					return "", errors.Trace(err)
+ 				}

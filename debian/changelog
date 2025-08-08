@@ -1,0 +1,5 @@
+tiup (1.16.3-1) unstable; urgency=medium
+
+  * Initial release (Closes: #1107484)
+
+ -- Otto Kekäläinen <otto@debian.org>  Wed, 19 Mar 2025 23:31:49 +0000
