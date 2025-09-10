@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,6 +50,8 @@ type PrometheusSpec struct {
 	DataDir               string                 `yaml:"data_dir,omitempty"`
 	LogDir                string                 `yaml:"log_dir,omitempty"`
 	NumaNode              string                 `yaml:"numa_node,omitempty" validate:"numa_node:editable"`
+	PromRemoteWriteToVM   bool                   `yaml:"prom_remote_write_to_vm,omitempty" validate:"prom_remote_write_to_vm:editable"` // Enable remote write to ng-monitoring
+	EnablePromAgentMode   bool                   `yaml:"enable_prom_agent_mode,omitempty" validate:"enable_prom_agent_mode:editable"`   // Enable Prometheus agent mode
 	RemoteConfig          Remote                 `yaml:"remote_config,omitempty" validate:"remote_config:ignore"`
 	ExternalAlertmanagers []ExternalAlertmanager `yaml:"external_alertmanagers" validate:"external_alertmanagers:ignore"`
 	PushgatewayAddrs      []string               `yaml:"pushgateway_addrs,omitempty" validate:"pushgateway_addrs:ignore"`
@@ -151,8 +154,14 @@ func (c *MonitorComponent) Instances() []Instance {
 	servers := c.BaseTopo().Monitors
 	ins := make([]Instance, 0, len(servers))
 
-	for _, s := range servers {
-		s := s
+	for _, rs := range servers {
+		s := rs
+		ports := []int{
+			s.Port,
+		}
+		if mopts := c.GetMonitoredOptions(); mopts != nil {
+			ports = append(ports, mopts.BlackboxExporterPort, mopts.NodeExporterPort)
+		}
 		mi := &MonitorInstance{BaseInstance{
 			InstanceSpec: s,
 			Name:         c.Name(),
@@ -163,10 +172,7 @@ func (c *MonitorComponent) Instances() []Instance {
 			SSHP:         s.SSHPort,
 			NumaNode:     s.NumaNode,
 			NumaCores:    "",
-
-			Ports: []int{
-				s.Port,
-			},
+			Ports:        ports,
 			Dirs: []string{
 				s.DeployDir,
 				s.DataDir,
@@ -193,6 +199,62 @@ type MonitorInstance struct {
 	topo Topology
 }
 
+// handleRemoteWrite handles remote write configuration for NG monitoring
+func (i *MonitorInstance) handleRemoteWrite(spec *PrometheusSpec, monitoring *PrometheusSpec) {
+	// When PromRemoteWriteToVM is false, remove any VM remote write configurations
+	if !spec.PromRemoteWriteToVM {
+		// If there are no remote write configurations, nothing to do
+		if len(spec.RemoteConfig.RemoteWrite) == 0 {
+			return
+		}
+
+		// Filter out any remote write configurations pointing to the VM endpoint
+		filteredRemoteWrite := make([]map[string]any, 0)
+		for _, rw := range spec.RemoteConfig.RemoteWrite {
+			if url, ok := rw["url"].(string); ok {
+				// Keep only non-VM remote write configurations
+				if !strings.Contains(url, fmt.Sprintf("%s/api/v1/write", utils.JoinHostPort(monitoring.Host, monitoring.NgPort))) {
+					filteredRemoteWrite = append(filteredRemoteWrite, rw)
+				}
+			} else {
+				// Keep entries without URL or with non-string URL (shouldn't happen normally)
+				filteredRemoteWrite = append(filteredRemoteWrite, rw)
+			}
+		}
+		spec.RemoteConfig.RemoteWrite = filteredRemoteWrite
+		return
+	}
+
+	if monitoring.NgPort <= 0 {
+		return
+	}
+
+	// monitor do not support tls for itself
+	remoteWriteURL := fmt.Sprintf("http://%s/api/v1/write", utils.JoinHostPort(monitoring.Host, monitoring.NgPort))
+
+	// Check if this URL already exists in remote write configs
+	urlExists := false
+	if spec.RemoteConfig.RemoteWrite != nil {
+		for _, rw := range spec.RemoteConfig.RemoteWrite {
+			if url, ok := rw["url"].(string); ok && url == remoteWriteURL {
+				urlExists = true
+				break
+			}
+		}
+	}
+
+	if !urlExists {
+		remoteWrite := map[string]any{
+			"url": remoteWriteURL,
+		}
+		if spec.RemoteConfig.RemoteWrite == nil {
+			spec.RemoteConfig.RemoteWrite = []map[string]any{remoteWrite}
+		} else {
+			spec.RemoteConfig.RemoteWrite = append(spec.RemoteConfig.RemoteWrite, remoteWrite)
+		}
+	}
+}
+
 // InitConfig implement Instance interface
 func (i *MonitorInstance) InitConfig(
 	ctx context.Context,
@@ -212,10 +274,11 @@ func (i *MonitorInstance) InitConfig(
 	spec := i.InstanceSpec.(*PrometheusSpec)
 
 	cfg := &scripts.PrometheusScript{
-		Port:           spec.Port,
-		WebExternalURL: fmt.Sprintf("http://%s", utils.JoinHostPort(spec.Host, spec.Port)),
-		Retention:      getRetention(spec.Retention),
-		EnableNG:       spec.NgPort > 0,
+		Port:                spec.Port,
+		WebExternalURL:      fmt.Sprintf("http://%s", utils.JoinHostPort(spec.Host, spec.Port)),
+		Retention:           getRetention(spec.Retention),
+		EnableNG:            spec.NgPort > 0,
+		EnablePromAgentMode: spec.EnablePromAgentMode, // Get from spec directly
 
 		DeployDir: paths.Deploy,
 		LogDir:    paths.Log,
@@ -224,6 +287,13 @@ func (i *MonitorInstance) InitConfig(
 		NumaNode: spec.NumaNode,
 
 		AdditionalArgs: spec.AdditionalArgs,
+	}
+
+	// Check if agent mode is enabled in additional arguments
+	if !cfg.EnablePromAgentMode {
+		if slices.Contains(spec.AdditionalArgs, "--enable-feature=agent") {
+			cfg.EnablePromAgentMode = true
+		}
 	}
 
 	fp := filepath.Join(paths.Cache, fmt.Sprintf("run_prometheus_%s_%d.sh", i.GetHost(), i.GetPort()))
@@ -333,8 +403,8 @@ func (i *MonitorInstance) InitConfig(
 		}
 	}
 	if servers, found := topoHasField("Monitors"); found {
-		for i := 0; i < servers.Len(); i++ {
-			monitoring := servers.Index(i).Interface().(*PrometheusSpec)
+		for idx := 0; idx < servers.Len(); idx++ {
+			monitoring := servers.Index(idx).Interface().(*PrometheusSpec)
 			uniqueHosts.Insert(monitoring.Host)
 		}
 	}
@@ -377,12 +447,6 @@ func (i *MonitorInstance) InitConfig(
 			cfig.AddMonitoredServer(host)
 		}
 	}
-
-	remoteCfg, err := encodeRemoteCfg2Yaml(spec.RemoteConfig)
-	if err != nil {
-		return err
-	}
-	cfig.SetRemoteConfig(string(remoteCfg))
 
 	// doesn't work
 	if _, err := i.setTLSConfig(ctx, false, nil, paths); err != nil {
@@ -434,11 +498,13 @@ func (i *MonitorInstance) InitConfig(
 		}
 
 		if servers, found := topoHasField("Monitors"); found {
-			for i := 0; i < servers.Len(); i++ {
-				monitoring := servers.Index(i).Interface().(*PrometheusSpec)
+			for idx := 0; idx < servers.Len(); idx++ {
+				monitoring := servers.Index(idx).Interface().(*PrometheusSpec)
 				cfig.AddNGMonitoring(monitoring.Host, uint64(monitoring.NgPort))
+				i.handleRemoteWrite(spec, monitoring)
 			}
 		}
+
 		fp = filepath.Join(paths.Cache, fmt.Sprintf("ngmonitoring_%s_%d.toml", i.GetHost(), i.GetPort()))
 		if err := ngcfg.ConfigToFile(fp); err != nil {
 			return err
@@ -448,11 +514,32 @@ func (i *MonitorInstance) InitConfig(
 			return err
 		}
 	}
-
-	fp = filepath.Join(paths.Cache, fmt.Sprintf("prometheus_%s_%d.yml", i.GetHost(), i.GetPort()))
-	if err := cfig.ConfigToFile(fp); err != nil {
+	// set remote config
+	remoteCfg, err := encodeRemoteCfg2Yaml(spec.RemoteConfig)
+	if err != nil {
 		return err
 	}
+	cfig.SetRemoteConfig(string(remoteCfg))
+
+	fp = filepath.Join(paths.Cache, fmt.Sprintf("prometheus_%s_%d.yml", i.GetHost(), i.GetPort()))
+
+	// Generate config file with agent mode consideration
+	if spec.EnablePromAgentMode {
+		// Use agent mode configuration (without rule_files section)
+		configBytes, err := cfig.ConfigWithAgentMode(true)
+		if err != nil {
+			return err
+		}
+		if err := utils.WriteFile(fp, configBytes, 0644); err != nil {
+			return err
+		}
+	} else {
+		// Use normal configuration
+		if err := cfig.ConfigToFile(fp); err != nil {
+			return err
+		}
+	}
+
 	if spec.AdditionalScrapeConf != nil {
 		err = mergeAdditionalScrapeConf(fp, spec.AdditionalScrapeConf)
 		if err != nil {

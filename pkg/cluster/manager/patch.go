@@ -63,7 +63,7 @@ func (m *Manager) Patch(name string, packagePath string, opt operator.Options, o
 
 	if !skipConfirm {
 		if err := tui.PromptForConfirmOrAbortError(
-			fmt.Sprintf("Will patch the cluster %s with package path is %s, nodes: %s, roles: %s.\nDo you want to continue? [y/N]:",
+			"%s", fmt.Sprintf("Will patch the cluster %s with package path is %s, nodes: %s, roles: %s.\nDo you want to continue? [y/N]:",
 				color.HiYellowString(name),
 				color.HiYellowString(packagePath),
 				color.HiRedString(strings.Join(opt.Nodes, ",")),
@@ -105,7 +105,7 @@ func (m *Manager) Patch(name string, packagePath string, opt operator.Options, o
 				return nil
 			}
 			// TBD: should patch be treated as an upgrade?
-			return operator.Upgrade(ctx, topo, opt, tlsCfg, base.Version, base.Version)
+			return operator.Upgrade(ctx, topo, opt, tlsCfg, base.Version, base.Version, nil)
 		}).
 		Build()
 

@@ -142,7 +142,7 @@ func Start(
 					// checkpoint must be in a new context
 					nctx := checkpoint.NewContext(ctx)
 					errg.Go(func() error {
-						err := rIns.PostRestart(nctx, cluster, tlsCfg)
+						err := rIns.PostRestart(nctx, cluster, tlsCfg, nil)
 						if err != nil && !options.Force {
 							return err
 						}
@@ -315,7 +315,6 @@ func systemctlMonitor(ctx context.Context, hosts []string, noAgentHosts set.Stri
 
 		errg, _ := errgroup.WithContext(ctx)
 		for _, host := range hosts {
-			host := host
 			if noAgentHosts.Exist(host) {
 				logger.Debugf("Ignored %s component %s for %s", action, comp, host)
 				continue
@@ -427,7 +426,7 @@ func systemctl(ctx context.Context, executor ctxt.Executor, service string, acti
 		fmt.Println(string(stdout))
 	}
 	if len(stderr) > 0 && !bytes.Contains(stderr, []byte("Created symlink ")) && !bytes.Contains(stderr, []byte("Removed symlink ")) {
-		logger.Errorf(string(stderr))
+		logger.Errorf("%s", string(stderr))
 	}
 	if len(stderr) > 0 && action == "stop" {
 		// ignore "unit not loaded" error, as this means the unit is not
@@ -435,10 +434,10 @@ func systemctl(ctx context.Context, executor ctxt.Executor, service string, acti
 		// NOTE: there will be a potential bug if the unit name is set
 		// wrong and the real unit still remains started.
 		if bytes.Contains(stderr, []byte(" not loaded.")) {
-			logger.Warnf(string(stderr))
+			logger.Warnf("%s", string(stderr))
 			return nil // reset the error to avoid exiting
 		}
-		logger.Errorf(string(stderr))
+		logger.Errorf("%s", string(stderr))
 	}
 	return err
 }
@@ -460,8 +459,6 @@ func EnableComponent(ctx context.Context, instances []spec.Instance, noAgentHost
 	errg, _ := errgroup.WithContext(ctx)
 
 	for _, ins := range instances {
-		ins := ins
-
 		// skip certain instances
 		switch name {
 		case spec.ComponentNodeExporter,
@@ -514,7 +511,6 @@ func StartComponent(ctx context.Context, instances []spec.Instance, noAgentHosts
 	errg, _ := errgroup.WithContext(ctx)
 
 	for _, ins := range instances {
-		ins := ins
 		switch name {
 		case spec.ComponentNodeExporter,
 			spec.ComponentBlackboxExporter:
@@ -586,7 +582,6 @@ func StopComponent(ctx context.Context,
 	errg, _ := errgroup.WithContext(ctx)
 
 	for _, ins := range instances {
-		ins := ins
 		switch name {
 		case spec.ComponentNodeExporter,
 			spec.ComponentBlackboxExporter:
@@ -602,7 +597,7 @@ func StopComponent(ctx context.Context,
 				if !ok {
 					panic("cdc should support rolling upgrade, but not")
 				}
-				err := cdc.PreRestart(nctx, topo, int(options.APITimeout), tlsCfg)
+				err := cdc.PreRestart(nctx, topo, int(options.APITimeout), tlsCfg, nil)
 				if err != nil {
 					// this should never hit, since all errors swallowed to trigger hard stop.
 					return err
@@ -623,7 +618,7 @@ func StopComponent(ctx context.Context,
 			if evictLeader {
 				rIns, ok := ins.(spec.RollingUpdateInstance)
 				if ok {
-					err := rIns.PreRestart(nctx, topo, int(options.APITimeout), tlsCfg)
+					err := rIns.PreRestart(nctx, topo, int(options.APITimeout), tlsCfg, nil)
 					if err != nil {
 						return err
 					}

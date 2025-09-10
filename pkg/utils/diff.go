@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/pingcap/tiup/pkg/set"
-	"github.com/r3labs/diff/v2"
+	"github.com/r3labs/diff/v3"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -54,7 +54,7 @@ func validateExpandable(fromField, toField any) bool {
 		return false
 	}
 	tidyPaths := func(arr []string) []string {
-		for i := 0; i < len(arr); i++ {
+		for i := range arr {
 			arr[i] = strings.TrimSuffix(strings.TrimSpace(arr[i]), "/")
 		}
 		return arr

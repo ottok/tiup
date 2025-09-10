@@ -19,10 +19,10 @@ func (inst *PDInstance) getConfig() map[string]any {
 	config["schedule.low-space-ratio"] = 1.0
 
 	if inst.kvIsSingleReplica {
-		config["replication.max-replica"] = 1
+		config["replication.max-replicas"] = 1
 	}
 
-	if inst.mode == "tidb-cse" {
+	if inst.shOpt.Mode == "tidb-cse" {
 		config["keyspace.pre-alloc"] = []string{"mykeyspace"}
 		config["replication.enable-placement-rules"] = true
 		config["schedule.merge-schedule-limit"] = 0

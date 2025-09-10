@@ -160,7 +160,6 @@ func (c *TiSparkMasterComponent) SetVersion(version string) {
 func (c *TiSparkMasterComponent) Instances() []Instance {
 	ins := make([]Instance, 0, len(c.Topology.TiSparkMasters))
 	for _, s := range c.Topology.TiSparkMasters {
-		s := s
 		ins = append(ins, &TiSparkMasterInstance{
 			BaseInstance: BaseInstance{
 				InstanceSpec: s,
@@ -266,6 +265,15 @@ func (i *TiSparkMasterInstance) InitConfig(
 	if _, _, err := e.Execute(ctx, cmd, sudo); err != nil {
 		return errors.Annotatef(err, "execute: %s", cmd)
 	}
+
+	// restorecon restores SELinux Contexts
+	// Check with: ls -lZ /path/to/file
+	// If the context is wrong systemctl will complain about a missing unit file
+	// Note that we won't check for errors here because:
+	// - We don't support SELinux in Enforcing mode
+	// - restorecon might not be available (Ubuntu doesn't install SELinux tools by default)
+	cmd = fmt.Sprintf("restorecon %s%s-%d.service", systemdDir, comp, port)
+	e.Execute(ctx, cmd, sudo) //nolint
 
 	// transfer default config
 	pdList := topo.GetPDList()

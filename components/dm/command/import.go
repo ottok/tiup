@@ -27,7 +27,7 @@ import (
 	"github.com/pingcap/tiup/pkg/tui"
 	tiuputils "github.com/pingcap/tiup/pkg/utils"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func newImportCmd() *cobra.Command {
@@ -84,7 +84,7 @@ func newImportCmd() *cobra.Command {
 
 			if !skipConfirm {
 				err = tui.PromptForConfirmOrAbortError(
-					color.HiYellowString("Using the Topology to deploy DM %s cluster %s, Please Stop the DM cluster from ansible side first.\nDo you want to continue? [y/N]: ",
+					"%s", color.HiYellowString("Using the Topology to deploy DM %s cluster %s, Please Stop the DM cluster from ansible side first.\nDo you want to continue? [y/N]: ",
 						clusterVersion,
 						clusterName,
 					))

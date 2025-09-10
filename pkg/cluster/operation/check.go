@@ -23,11 +23,11 @@ import (
 	"strings"
 
 	"github.com/AstroProfundis/sysinfo"
-	"github.com/pingcap/tidb-insight/collector/insight"
 	"github.com/pingcap/tiup/pkg/checkpoint"
 	"github.com/pingcap/tiup/pkg/cluster/ctxt"
 	"github.com/pingcap/tiup/pkg/cluster/module"
 	"github.com/pingcap/tiup/pkg/cluster/spec"
+	"github.com/pingcap/tiup/pkg/insight"
 	"go.uber.org/zap"
 )
 
@@ -104,7 +104,7 @@ func (c CheckResult) Passed() bool {
 // CheckSystemInfo performs checks with basic system info
 func CheckSystemInfo(opt *CheckOptions, rawData []byte) []*CheckResult {
 	var results []*CheckResult
-	var insightInfo insight.InsightInfo
+	var insightInfo insight.Info
 	if err := json.Unmarshal(rawData, &insightInfo); err != nil {
 		return append(results, &CheckResult{
 			Name: CheckNameGeneral,
@@ -386,7 +386,7 @@ func CheckSysLimits(opt *CheckOptions, user string, l []byte) []*CheckResult {
 		nofileHard int
 	)
 
-	for _, line := range strings.Split(string(l), "\n") {
+	for line := range strings.SplitSeq(string(l), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") {
 			continue
@@ -447,7 +447,7 @@ func CheckSysLimits(opt *CheckOptions, user string, l []byte) []*CheckResult {
 func CheckKernelParameters(opt *CheckOptions, p []byte) []*CheckResult {
 	var results []*CheckResult
 
-	for _, line := range strings.Split(string(p), "\n") {
+	for line := range strings.SplitSeq(string(p), "\n") {
 		line = strings.TrimSpace(line)
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
@@ -615,7 +615,7 @@ func CheckListeningPort(opt *CheckOptions, host string, topo *spec.Specification
 	})
 
 	for p := range ports {
-		for _, line := range strings.Split(string(rawData), "\n") {
+		for line := range strings.SplitSeq(string(rawData), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) < 5 || fields[0] != "LISTEN" {
 				continue
@@ -637,7 +637,7 @@ func CheckListeningPort(opt *CheckOptions, host string, topo *spec.Specification
 // CheckPartitions checks partition info of data directories
 func CheckPartitions(opt *CheckOptions, host string, topo *spec.Specification, rawData []byte) []*CheckResult {
 	var results []*CheckResult
-	var insightInfo insight.InsightInfo
+	var insightInfo insight.Info
 	if err := json.Unmarshal(rawData, &insightInfo); err != nil {
 		return append(results, &CheckResult{
 			Name: CheckNameDisks,
@@ -859,7 +859,7 @@ func CheckTHP(ctx context.Context, e ctxt.Executor, sudo bool) *CheckResult {
 		return result
 	}
 
-	for _, line := range strings.Split(strings.Trim(string(stdout), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.Trim(string(stdout), "\n"), "\n") {
 		if len(line) > 0 && !strings.Contains(line, "[never]") {
 			result.Err = fmt.Errorf("THP is enabled, please disable it for best performance")
 			return result
@@ -978,7 +978,7 @@ func CheckDirIsExist(ctx context.Context, e ctxt.Executor, path string) []*Check
 // CheckTimeZone performs checks if time zone is the same
 func CheckTimeZone(ctx context.Context, topo *spec.Specification, host string, rawData []byte) []*CheckResult {
 	var results []*CheckResult
-	var insightInfo, pd0insightInfo insight.InsightInfo
+	var insightInfo, pd0insightInfo insight.Info
 	if err := json.Unmarshal(rawData, &insightInfo); err != nil {
 		return append(results, &CheckResult{
 			Name: CheckNameTimeZone,

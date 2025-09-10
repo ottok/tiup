@@ -35,7 +35,7 @@ import (
 	"github.com/pingcap/tiup/pkg/set"
 	"github.com/pingcap/tiup/pkg/tidbver"
 	"github.com/pingcap/tiup/pkg/utils"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 // TiFlashSpec represents the TiFlash topology specification in topology.yaml
@@ -542,7 +542,7 @@ func (i *TiFlashInstance) initTiFlashConfig(ctx context.Context, version string,
 		markCacheSize = `mark_cache_size: 5368709120`
 	}
 
-	err = yaml.Unmarshal([]byte(fmt.Sprintf(`
+	err = yaml.Unmarshal(fmt.Appendf(nil, `
 server_configs:
   tiflash:
     default_profile: "default"
@@ -584,7 +584,7 @@ server_configs:
 		deprecatedUsersConfig,
 		daemonConfig,
 		markCacheSize,
-	)), &topo)
+	), &topo)
 
 	if err != nil {
 		return nil, err
@@ -625,7 +625,7 @@ func (i *TiFlashInstance) InitTiFlashLearnerConfig(ctx context.Context, clusterV
 	} else {
 		statusAddr = fmt.Sprintf(`server.status-addr: "%s"`, utils.JoinHostPort(spec.Host, spec.FlashProxyStatusPort))
 	}
-	err := yaml.Unmarshal([]byte(fmt.Sprintf(`
+	err := yaml.Unmarshal(fmt.Appendf(nil, `
 server_configs:
   tiflash-learner:
     log-file: "%[1]s/tiflash_tikv.log"
@@ -648,7 +648,7 @@ server_configs:
 		utils.JoinHostPort(spec.Host, spec.FlashProxyPort),
 		statusAddr,
 		paths.Data[0],
-	)), &topo)
+	), &topo)
 
 	if err != nil {
 		return nil, err

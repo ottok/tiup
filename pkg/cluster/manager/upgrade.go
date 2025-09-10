@@ -38,12 +38,11 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-// Upgrade the cluster.
-func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions map[string]string, opt operator.Options, skipConfirm, offline, ignoreVersionCheck bool) error {
+func (m *Manager) upgradePrecheck(name string, componentVersions map[string]string, opt operator.Options, skipConfirm bool) error {
 	if !skipConfirm && strings.ToLower(opt.DisplayMode) != "json" {
 		for _, v := range componentVersions {
 			if v != "" {
-				m.logger.Warnf(color.YellowString("tiup-cluster does not provide compatibility guarantees or version checks for different component versions. Please be aware of the risks or use it with the assistance of PingCAP support."))
+				m.logger.Warnf("%s", color.YellowString("tiup-cluster does not provide compatibility guarantees or version checks for different component versions. Please be aware of the risks or use it with the assistance of PingCAP support."))
 				err := tui.PromptForConfirmOrAbortError("Do you want to continue? [y/N]: ")
 				if err != nil {
 					return err
@@ -57,7 +56,13 @@ func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions 
 	}
 
 	// check locked
-	if err := m.specManager.ScaleOutLockedErr(name); err != nil {
+	return m.specManager.ScaleOutLockedErr(name)
+}
+
+// Upgrade the cluster.
+func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions map[string]string, opt operator.Options, skipConfirm, offline, ignoreVersionCheck bool, restartTimeout time.Duration) error {
+	err := m.upgradePrecheck(name, componentVersions, opt, skipConfirm)
+	if err != nil {
 		return err
 	}
 
@@ -85,7 +90,7 @@ func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions 
 		if !ignoreVersionCheck {
 			return err
 		}
-		m.logger.Warnf(color.RedString("There is no guarantee that the cluster can be downgraded. Be careful before you continue."))
+		m.logger.Warnf("%s", color.RedString("There is no guarantee that the cluster can be downgraded. Be careful before you continue."))
 	}
 
 	compVersionMsg := ""
@@ -121,11 +126,12 @@ func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions 
 	}
 
 	m.logger.Warnf(`%s
-This operation will upgrade %s %s cluster %s to %s:%s`,
+This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s`,
 		color.YellowString("Before the upgrade, it is recommended to read the upgrade guide at https://docs.pingcap.com/tidb/stable/upgrade-tidb-using-tiup and finish the preparation steps."),
 		m.sysName,
 		color.HiYellowString(base.Version),
 		color.HiYellowString(name),
+		opt.Concurrency,
 		color.HiYellowString(clusterVersion),
 		compVersionMsg)
 	if !skipConfirm {
@@ -317,7 +323,23 @@ This operation will upgrade %s %s cluster %s to %s:%s`,
 			}
 			nopt := opt
 			nopt.Roles = restartComponents
-			return operator.Upgrade(ctx, topo, nopt, tlsCfg, base.Version, clusterVersion)
+			waitFunc := func() {}
+			if restartTimeout.Nanoseconds() > 0 {
+				waitFunc = func() {
+					// A tui.PromptWithTimeout(str, time.Duration) would have been nice
+					ch := make(chan any, 1)
+					go func() {
+						tui.Prompt(fmt.Sprintf("\nPress any key to continue (timeout %s)", restartTimeout))
+						ch <- nil
+					}()
+					select {
+					case <-time.After(restartTimeout):
+						fmt.Printf("\nTimeout, continueing\n")
+					case <-ch:
+					}
+				}
+			}
+			return operator.Upgrade(ctx, topo, nopt, tlsCfg, base.Version, clusterVersion, waitFunc)
 		}).
 		Build()
 

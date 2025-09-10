@@ -204,7 +204,6 @@ func (c *TiKVComponent) SetVersion(version string) {
 func (c *TiKVComponent) Instances() []Instance {
 	ins := make([]Instance, 0, len(c.Topology.TiKVServers))
 	for _, s := range c.Topology.TiKVServers {
-		s := s
 		ins = append(ins, &TiKVInstance{BaseInstance{
 			InstanceSpec: s,
 			Name:         c.Name(),
@@ -388,7 +387,7 @@ func (i *TiKVInstance) ScaleConfig(
 var _ RollingUpdateInstance = &TiKVInstance{}
 
 // PreRestart implements RollingUpdateInstance interface.
-func (i *TiKVInstance) PreRestart(ctx context.Context, topo Topology, apiTimeoutSeconds int, tlsCfg *tls.Config) error {
+func (i *TiKVInstance) PreRestart(ctx context.Context, topo Topology, apiTimeoutSeconds int, tlsCfg *tls.Config, updcfg *UpdateConfig) error {
 	timeoutOpt := &utils.RetryOption{
 		Timeout: time.Second * time.Duration(apiTimeoutSeconds),
 		Delay:   time.Second * 2,
@@ -431,7 +430,7 @@ func (i *TiKVInstance) PreRestart(ctx context.Context, topo Topology, apiTimeout
 }
 
 // PostRestart implements RollingUpdateInstance interface.
-func (i *TiKVInstance) PostRestart(ctx context.Context, topo Topology, tlsCfg *tls.Config) error {
+func (i *TiKVInstance) PostRestart(ctx context.Context, topo Topology, tlsCfg *tls.Config, updcfg *UpdateConfig) error {
 	tidbTopo, ok := topo.(*Specification)
 	if !ok {
 		panic("should be type of tidb topology")
@@ -475,17 +474,17 @@ func addr(spec *TiKVSpec) string {
 func genLeaderCounter(topo *Specification, tlsCfg *tls.Config) func(string) (int, error) {
 	return func(id string) (int, error) {
 		statusAddress := ""
-		foundIds := []string{}
+		foundIDs := []string{}
 		for _, kv := range topo.TiKVServers {
 			kvid := utils.JoinHostPort(kv.Host, kv.Port)
 			if id == kvid {
 				statusAddress = utils.JoinHostPort(kv.GetManageHost(), kv.StatusPort)
 				break
 			}
-			foundIds = append(foundIds, kvid)
+			foundIDs = append(foundIDs, kvid)
 		}
 		if statusAddress == "" {
-			return 0, fmt.Errorf("TiKV instance with ID %s not found, found %s", id, strings.Join(foundIds, ","))
+			return 0, fmt.Errorf("TiKV instance with ID %s not found, found %s", id, strings.Join(foundIDs, ","))
 		}
 
 		transport := makeTransport(tlsCfg)
