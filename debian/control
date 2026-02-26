@@ -69,6 +69,9 @@ Build-Depends:
  golang-gopkg-yaml.v3-dev,
  golang-sslmate-src-go-pkcs12-dev,
  golang-toml-dev,
+ golang-github-appleboy-easyssh-proxy-dev,
+ golang-github-xo-usql-dev,
+ golang-github-pingcap-failpoint-dev,
 Testsuite: autopkgtest-pkg-go
 Standards-Version: 4.7.2
 Vcs-Browser: https://salsa.debian.org/go-team/packages/tiup
