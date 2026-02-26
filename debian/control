@@ -1,6 +1,5 @@
 Source: tiup
 Section: golang
-Priority: optional
 Maintainer: Debian Go Packaging Team <team+pkg-go@tracker.debian.org>
 Uploaders:
  Otto Kekäläinen <otto@debian.org>,
