@@ -25,7 +25,7 @@ Apply these changes on TiUP to make it compatible:
  1 file changed, 4 insertions(+), 2 deletions(-)
 
 diff --git a/components/client/main.go b/components/client/main.go
-index 1e03eb0..a12d68a 100644
+index 8c2a11e..d1b3dca 100644
 --- a/components/client/main.go
 +++ b/components/client/main.go
 @@ -23,6 +23,7 @@ import (
@@ -36,7 +36,7 @@ index 1e03eb0..a12d68a 100644
  	ui "github.com/gizak/termui/v3"
  	"github.com/gizak/termui/v3/widgets"
  	"github.com/pingcap/tiup/pkg/environment"
-@@ -95,11 +96,12 @@ func connect(target string) error {
+@@ -98,11 +99,12 @@ func connect(target string) error {
  	if err != nil {
  		return fmt.Errorf("can't get current user: %s", err.Error())
  	}

@@ -87,7 +87,7 @@ index a2c48c9..f1f7872 100644
  	released := make(map[string]string)
  
 diff --git a/pkg/environment/env.go b/pkg/environment/env.go
-index 69d0136..0ee6788 100644
+index 3e61f59..c77e411 100644
 --- a/pkg/environment/env.go
 +++ b/pkg/environment/env.go
 @@ -33,6 +33,10 @@ import (
@@ -115,7 +115,7 @@ index 69d0136..0ee6788 100644
  	initRepo := time.Now()
  	profile := localdata.InitProfile()
  
-@@ -148,6 +159,9 @@ func (env *Environment) UpdateComponents(specs []string, nightly, force bool) er
+@@ -157,6 +168,9 @@ func (env *Environment) UpdateComponents(specs []string, nightly, force bool) er
  
  // SelfUpdate updates TiUP.
  func (env *Environment) SelfUpdate() error {
@@ -142,10 +142,10 @@ index 7cce7a4..a6d82af 100644
  		slowTimeout   = 1 * time.Second // Timeout to display checking message
  		cancelTimeout = 2 * time.Second // Timeout to cancel the check
 diff --git a/pkg/repository/v1_repository.go b/pkg/repository/v1_repository.go
-index e5fd658..877285b 100644
+index cee4d26..9ad503a 100644
 --- a/pkg/repository/v1_repository.go
 +++ b/pkg/repository/v1_repository.go
-@@ -541,6 +541,11 @@ func (r *V1Repository) PurgeTimestamp() {
+@@ -542,6 +542,11 @@ func (r *V1Repository) PurgeTimestamp() {
  // has the same value of our local one. (not hashing the snapshot file itself)
  // Return weather the manifest is changed compared to the one in local ts and the FileHash of snapshot.
  func (r *V1Repository) fetchTimestamp() (changed bool, manifest *v1manifest.Manifest, err error) {
