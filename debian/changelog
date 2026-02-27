@@ -1,4 +1,4 @@
-tiup (1.16.4-1) UNRELEASED; urgency=medium
+tiup (1.16.4-1) unstable; urgency=medium
 
   * New upstream release
   * Remove multiple patches that limited TiUP functionality and dependencies
@@ -10,6 +10,7 @@ tiup (1.16.4-1) UNRELEASED; urgency=medium
   * Bump Debian Policy version to 4.7.3
   * Update copyright years for recent contributors
   * Update d/watch to use uscan v5 format
+  * Update Lintian overrides about spelling errors in binaries
 
  -- Otto Kekäläinen <otto@debian.org>  Fri, 27 Feb 2026 08:08:08 +0000
 
