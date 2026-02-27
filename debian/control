@@ -19,6 +19,7 @@ Build-Depends:
  golang-github-fatih-color-dev,
  golang-github-gibson042-canonicaljson-go-dev,
  golang-github-gizak-termui-dev,
+ golang-github-go-git-go-billy-dev,
  golang-github-go-sql-driver-mysql-dev,
  golang-github-gofrs-flock-dev,
  golang-github-google-uuid-dev,
