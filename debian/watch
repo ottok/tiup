@@ -1,6 +1,6 @@
 Version: 5
-
-Template: Github
-Owner: pingcap
-Project: tiup
-Uversionmangle: s/(\d)[_\.\-\+]?(RC|rc|pre|dev|beta|alpha)[.]?(\d*)$/$1~$2$3/
+Template: GitHub
+Dist: github.com/pingcap/tiup
+Uversion-Mangle: auto
+# Use Uversion-Mangle to ensure that e.g. v1.6.0-dev is converted to 1.6.0~dev
+# (with tilde) is considered an earlier version than the actual v1.6.0 release
