@@ -48,10 +48,10 @@ index 82fd717..24c9fe5 100644
  	proc_stat.CPUTimes, _ = proc.Times()
  	proc_stat.Memory, _ = proc.MemoryInfo()
 diff --git a/pkg/insight/process_linux.go b/pkg/insight/process_linux.go
-index 9c8083c..9bea4c2 100644
+index 6e10868..880d303 100644
 --- a/pkg/insight/process_linux.go
 +++ b/pkg/insight/process_linux.go
-@@ -5,23 +5,15 @@ package insight
+@@ -4,23 +4,15 @@ package insight
  
  import (
  	"log"

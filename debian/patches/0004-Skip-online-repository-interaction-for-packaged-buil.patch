@@ -87,7 +87,7 @@ index a2c48c9..f1f7872 100644
  	released := make(map[string]string)
  
 diff --git a/pkg/environment/env.go b/pkg/environment/env.go
-index 3e61f59..c77e411 100644
+index 8ea388c..53b300f 100644
 --- a/pkg/environment/env.go
 +++ b/pkg/environment/env.go
 @@ -33,6 +33,10 @@ import (
@@ -100,8 +100,8 @@ index 3e61f59..c77e411 100644
 +	IsPackagedBuild = true
  )
  
- // Mirror return mirror of tiup.
-@@ -81,6 +85,13 @@ func InitEnv(options repository.Options, mOpt repository.MirrorOptions) (*Enviro
+ // EnvList is the canonical allowlist of environment variables TiUP will print or expose.
+@@ -127,6 +131,13 @@ func InitEnv(options repository.Options, mOpt repository.MirrorOptions) (*Enviro
  		return env, nil
  	}
  
@@ -115,7 +115,7 @@ index 3e61f59..c77e411 100644
  	initRepo := time.Now()
  	profile := localdata.InitProfile()
  
-@@ -157,6 +168,9 @@ func (env *Environment) UpdateComponents(specs []string, nightly, force bool) er
+@@ -203,6 +214,9 @@ func (env *Environment) UpdateComponents(specs []string, nightly, force bool) er
  
  // SelfUpdate updates TiUP.
  func (env *Environment) SelfUpdate() error {
@@ -126,10 +126,10 @@ index 3e61f59..c77e411 100644
  		return err
  	}
 diff --git a/pkg/exec/run.go b/pkg/exec/run.go
-index 7cce7a4..a6d82af 100644
+index 7ef82b5..2a52de5 100644
 --- a/pkg/exec/run.go
 +++ b/pkg/exec/run.go
-@@ -173,6 +173,11 @@ func PrepareCommand(p *PrepareCommandParams) (*exec.Cmd, error) {
+@@ -175,6 +175,11 @@ func PrepareCommand(p *PrepareCommandParams) (*exec.Cmd, error) {
  }
  
  func cmdCheckUpdate(component string, version utils.Version) {
@@ -142,10 +142,10 @@ index 7cce7a4..a6d82af 100644
  		slowTimeout   = 1 * time.Second // Timeout to display checking message
  		cancelTimeout = 2 * time.Second // Timeout to cancel the check
 diff --git a/pkg/repository/v1_repository.go b/pkg/repository/v1_repository.go
-index cee4d26..9ad503a 100644
+index 1df5914..216ebc2 100644
 --- a/pkg/repository/v1_repository.go
 +++ b/pkg/repository/v1_repository.go
-@@ -542,6 +542,11 @@ func (r *V1Repository) PurgeTimestamp() {
+@@ -538,6 +538,11 @@ func (r *V1Repository) PurgeTimestamp() {
  // has the same value of our local one. (not hashing the snapshot file itself)
  // Return weather the manifest is changed compared to the one in local ts and the FileHash of snapshot.
  func (r *V1Repository) fetchTimestamp() (changed bool, manifest *v1manifest.Manifest, err error) {

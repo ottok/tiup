@@ -25,7 +25,7 @@ Apply these changes on TiUP to make it compatible:
  1 file changed, 4 insertions(+), 2 deletions(-)
 
 diff --git a/components/client/main.go b/components/client/main.go
-index 8c2a11e..d1b3dca 100644
+index c8ad2b0..d60705a 100644
 --- a/components/client/main.go
 +++ b/components/client/main.go
 @@ -23,6 +23,7 @@ import (
