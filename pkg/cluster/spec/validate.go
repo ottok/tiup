@@ -233,19 +233,6 @@ func CheckClusterDirOverlap(entries []DirEntry) error {
 			}
 
 			if utils.IsSubDir(d1.dir, d2.dir) || utils.IsSubDir(d2.dir, d1.dir) {
-				// overlap is allowed in the case both sides are imported
-				if d1.instance.IsImported() && d2.instance.IsImported() {
-					continue
-				}
-
-				// overlap is allowed in the case one side is imported and the other is monitor,
-				// we assume that the monitor is deployed with the first instance in that host,
-				// it implies that the monitor is imported too.
-				if (strings.HasPrefix(d1.dirKind, "monitor") && d2.instance.IsImported()) ||
-					(d1.instance.IsImported() && strings.HasPrefix(d2.dirKind, "monitor")) {
-					continue
-				}
-
 				// overlap is allowed in the case one side is data dir of a monitor instance,
 				// as the *_exporter don't need data dir, the field is only kept for compatibility
 				// with legacy tidb-ansible deployments.
@@ -424,7 +411,7 @@ func (e *TiKVLabelError) Error() string {
 	}
 	sort.Strings(ids)
 
-	str := ""
+	var str strings.Builder
 	for _, id := range ids {
 		if len(e.TiKVInstances[id]) == 0 {
 			continue
@@ -435,12 +422,12 @@ func (e *TiKVLabelError) Error() string {
 		}
 		sort.Strings(errs)
 
-		str += fmt.Sprintf("%s:\n", id)
+		str.WriteString(fmt.Sprintf("%s:\n", id))
 		for _, e := range errs {
-			str += fmt.Sprintf("\t%s\n", e)
+			str.WriteString(fmt.Sprintf("\t%s\n", e))
 		}
 	}
-	return str
+	return str.String()
 }
 
 // TiKVLabelProvider provides the store labels information
@@ -508,7 +495,7 @@ func (s *Specification) platformConflictsDetect() error {
 
 	platformStats := map[string]conflict{}
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -518,10 +505,6 @@ func (s *Specification) platformConflictsDetect() error {
 		compSpecs := topoSpec.Field(i)
 		for index := 0; index < compSpecs.Len(); index++ {
 			compSpec := reflect.Indirect(compSpecs.Index(index))
-			// skip nodes imported from TiDB-Ansible
-			if compSpec.Addr().Interface().(InstanceSpec).IsImported() {
-				continue
-			}
 			// check hostname
 			host := compSpec.FieldByName("Host").String()
 			cfg := strings.Split(topoType.Field(i).Tag.Get("yaml"), ",")[0] // without meta
@@ -560,7 +543,7 @@ func (s *Specification) platformConflictsDetect() error {
 
 func (s *Specification) portInvalidDetect() error {
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	checkPort := func(idx int, compSpec reflect.Value) error {
 		compSpec = reflect.Indirect(compSpec)
@@ -635,7 +618,7 @@ func (s *Specification) portConflictsDetect() error {
 	portStats := map[usedPort]conflict{}
 	uniqueHosts := set.NewStringSet()
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -728,9 +711,8 @@ func (s *Specification) dirConflictsDetect() error {
 			dir  string
 		}
 		conflict struct {
-			tp       string
-			cfg      string
-			imported bool
+			tp  string
+			cfg string
 		}
 	)
 
@@ -743,7 +725,7 @@ func (s *Specification) dirConflictsDetect() error {
 	var dirStats = map[usedDir]conflict{}
 
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -780,10 +762,9 @@ func (s *Specification) dirConflictsDetect() error {
 					if item.dir != "" && !strings.HasPrefix(item.dir, "/") {
 						continue
 					}
+
 					prev, exist := dirStats[item]
-					// not checking between imported nodes
-					if exist &&
-						!(compSpec.Addr().Interface().(InstanceSpec).IsImported() && prev.imported) {
+					if exist {
 						return &meta.ValidateErr{
 							Type:   meta.TypeConflict,
 							Target: "directory",
@@ -792,12 +773,9 @@ func (s *Specification) dirConflictsDetect() error {
 							Value:  item.dir,
 						}
 					}
-					// not reporting error for nodes imported from TiDB-Ansible, but keep
-					// their dirs in the map to check if other nodes are using them
 					dirStats[item] = conflict{
-						tp:       tp,
-						cfg:      cfg,
-						imported: compSpec.Addr().Interface().(InstanceSpec).IsImported(),
+						tp:  tp,
+						cfg: cfg,
 					}
 				}
 			}
@@ -937,6 +915,8 @@ func (s *Specification) validateTLSEnabled() error {
 		case ComponentPD,
 			ComponentTSO,
 			ComponentScheduling,
+			ComponentRouter,
+			ComponentResourceManager,
 			ComponentTiDB,
 			ComponentTiKV,
 			ComponentTiFlash,
@@ -1016,6 +996,36 @@ func (s *Specification) validateSchedulingNames() error {
 	return nil
 }
 
+func (s *Specification) validateRouterName() error {
+	routerNames := set.NewStringSet()
+	for _, router := range s.RouterServers {
+		if router.Name == "" {
+			continue
+		}
+
+		if routerNames.Exist(router.Name) {
+			return errors.Errorf("component router_servers.name is not supported duplicated, the name %s is duplicated", router.Name)
+		}
+		routerNames.Insert(router.Name)
+	}
+	return nil
+}
+
+func (s *Specification) validateResourceManagerNames() error {
+	resourceManagerNames := set.NewStringSet()
+	for _, rm := range s.ResourceManagerServers {
+		if rm.Name == "" {
+			continue
+		}
+
+		if resourceManagerNames.Exist(rm.Name) {
+			return errors.Errorf("component resource_manager_servers.name is not supported duplicated, the name %s is duplicated", rm.Name)
+		}
+		resourceManagerNames.Insert(rm.Name)
+	}
+	return nil
+}
+
 func (s *Specification) validateTiFlashConfigs() error {
 	c := FindComponent(s, ComponentTiFlash)
 	for _, ins := range c.Instances() {
@@ -1037,7 +1047,7 @@ func (s *Specification) validateMonitorAgent() error {
 	)
 	agentStats := map[string]conflict{}
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -1047,10 +1057,6 @@ func (s *Specification) validateMonitorAgent() error {
 		compSpecs := topoSpec.Field(i)
 		for index := 0; index < compSpecs.Len(); index++ {
 			compSpec := reflect.Indirect(compSpecs.Index(index))
-			// skip nodes imported from TiDB-Ansible
-			if compSpec.Addr().Interface().(InstanceSpec).IsImported() {
-				continue
-			}
 
 			// check hostname
 			host := compSpec.FieldByName("Host").String()
@@ -1097,6 +1103,8 @@ func (s *Specification) Validate() error {
 		s.validatePDNames,
 		s.validateTSONames,
 		s.validateSchedulingNames,
+		s.validateRouterName,
+		s.validateResourceManagerNames,
 		s.validateTiSparkSpec,
 		s.validateTiFlashConfigs,
 		s.validateMonitorAgent,

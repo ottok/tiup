@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/joomcode/errorx"
@@ -67,9 +68,7 @@ func (m *Manager) TLS(name string, gOpt operator.Options, enable, cleanCertifica
 		return err
 	}
 
-	var (
-		sshProxyProps *tui.SSHConnectionProps = &tui.SSHConnectionProps{}
-	)
+	var sshProxyProps = &tui.SSHConnectionProps{}
 	if gOpt.SSHType != executor.SSHTypeNone {
 		var err error
 		if len(gOpt.SSHProxyHost) != 0 {
@@ -125,7 +124,7 @@ func (m *Manager) TLS(name string, gOpt operator.Options, enable, cleanCertifica
 	return nil
 }
 
-// checkTLSEnv check tiflash vserson and show confirm
+// checkTLSEnv check tiflash version and show confirm
 func checkTLSEnv(topo spec.Topology, clusterName, version string, skipConfirm bool) error {
 	// check tiflash version
 	if err := checkTiFlashWithTLS(topo, version); err != nil {
@@ -134,7 +133,7 @@ func checkTLSEnv(topo spec.Topology, clusterName, version string, skipConfirm bo
 
 	if clusterSpec, ok := topo.(*spec.Specification); ok {
 		if len(clusterSpec.PDServers) != 1 {
-			return errorx.EnsureStackTrace(fmt.Errorf("Having multiple PD nodes is not supported when enable/disable TLS")).
+			return errorx.EnsureStackTrace(fmt.Errorf("having multiple PD nodes is not supported when enable/disable TLS")).
 				WithProperty(tui.SuggestionFromString("Please `scale-in` PD nodes to one and try again."))
 		}
 	}
@@ -162,15 +161,16 @@ func getTLSFileMap(m *Manager, clusterName string, topo spec.Topology,
 		// get:  host: set(tlsdir)
 		delFileMap = getCleanupFiles(topo, false, false, cleanCertificate, false, []string{}, []string{})
 		// build file list string
-		delFileList := fmt.Sprintf("\n%s:\n %s", color.CyanString("localhost"), m.specManager.Path(clusterName, spec.TLSCertKeyDir))
+		var delFileList strings.Builder
+		delFileList.WriteString(fmt.Sprintf("\n%s:\n %s", color.CyanString("localhost"), m.specManager.Path(clusterName, spec.TLSCertKeyDir)))
 		for host, fileList := range delFileMap {
-			delFileList += fmt.Sprintf("\n%s:", color.CyanString(host))
+			delFileList.WriteString(fmt.Sprintf("\n%s:", color.CyanString(host)))
 			for _, dfp := range fileList.Slice() {
-				delFileList += fmt.Sprintf("\n %s", dfp)
+				delFileList.WriteString(fmt.Sprintf("\n %s", dfp))
 			}
 		}
 
-		m.logger.Warnf("The parameter `%s` will delete the following files: %s", color.YellowString("--clean-certificate"), delFileList)
+		m.logger.Warnf("The parameter `%s` will delete the following files: %s", color.YellowString("--clean-certificate"), delFileList.String())
 
 		if !skipConfirm {
 			if err := tui.PromptForConfirmOrAbortError("Do you want to continue? [y/N]:"); err != nil {

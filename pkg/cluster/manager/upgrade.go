@@ -93,7 +93,7 @@ func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions 
 		m.logger.Warnf("%s", color.RedString("There is no guarantee that the cluster can be downgraded. Be careful before you continue."))
 	}
 
-	compVersionMsg := ""
+	var compVersionMsg strings.Builder
 	restartComponents := []string{}
 	components := topo.ComponentsByUpdateOrder(base.Version)
 	for _, comp := range components {
@@ -107,7 +107,7 @@ func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions 
 		if comp.Name() != spec.ComponentTiProxy || calver != oldver {
 			restartComponents = append(restartComponents, comp.Name(), comp.Role())
 			if len(comp.Instances()) > 0 {
-				compVersionMsg += fmt.Sprintf("\nwill upgrade and restart component \"%19s\" to \"%s\",", comp.Name(), calver)
+				compVersionMsg.WriteString(fmt.Sprintf("\nwill upgrade and restart component \"%19s\" to \"%s\",", comp.Name(), calver))
 			}
 		}
 	}
@@ -121,8 +121,8 @@ func (m *Manager) Upgrade(name string, clusterVersion string, componentVersions 
 		if componentVersions[spec.ComponentNodeExporter] != "" {
 			monitoredOptions.NodeExporterVersion = componentVersions[spec.ComponentNodeExporter]
 		}
-		compVersionMsg += fmt.Sprintf("\nwill upgrade component %19s to \"%s\",", "\"node-exporter\"", monitoredOptions.NodeExporterVersion)
-		compVersionMsg += fmt.Sprintf("\nwill upgrade component %19s to \"%s\".", "\"blackbox-exporter\"", monitoredOptions.BlackboxExporterVersion)
+		compVersionMsg.WriteString(fmt.Sprintf("\nwill upgrade component %19s to \"%s\",", "\"node-exporter\"", monitoredOptions.NodeExporterVersion))
+		compVersionMsg.WriteString(fmt.Sprintf("\nwill upgrade component %19s to \"%s\".", "\"blackbox-exporter\"", monitoredOptions.BlackboxExporterVersion))
 	}
 
 	m.logger.Warnf(`%s
@@ -133,7 +133,7 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
 		color.HiYellowString(name),
 		opt.Concurrency,
 		color.HiYellowString(clusterVersion),
-		compVersionMsg)
+		compVersionMsg.String())
 	if !skipConfirm {
 		if err := tui.PromptForConfirmOrAbortError(`Do you want to continue? [y/N]:`); err != nil {
 			return err
@@ -141,7 +141,6 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
 		m.logger.Infof("Upgrading cluster...")
 	}
 
-	hasImported := false
 	for _, comp := range components {
 		version := comp.CalculateVersion(clusterVersion)
 
@@ -169,22 +168,6 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
 			// eg: TiCDC support DataDir since v4.0.13
 			tb = tb.Mkdir(topo.BaseTopo().GlobalOptions.User, inst.GetManageHost(), topo.BaseTopo().GlobalOptions.SystemdMode != spec.UserMode, dataDirs...)
 
-			if inst.IsImported() {
-				switch inst.ComponentName() {
-				case spec.ComponentPrometheus, spec.ComponentGrafana, spec.ComponentAlertmanager:
-					tb.CopyComponent(
-						inst.ComponentSource(),
-						inst.OS(),
-						inst.Arch(),
-						version,
-						"", // use default srcPath
-						inst.GetManageHost(),
-						deployDir,
-					)
-				}
-				hasImported = true
-			}
-
 			// backup files of the old version
 			tb = tb.BackupComponent(inst.ComponentSource(), base.Version, inst.GetManageHost(), deployDir)
 
@@ -199,7 +182,7 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
 					sparkVer, _, err := env.V1Repository().WithOptions(repository.Options{
 						GOOS:   inst.OS(),
 						GOARCH: inst.Arch(),
-					}).LatestStableVersion(spec.ComponentSpark, false)
+					}).LatestStableVersion(spec.ComponentSpark, false, nil)
 					if err != nil {
 						return err
 					}
@@ -235,7 +218,7 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
 		}
 	}
 
-	var sshProxyProps *tui.SSHConnectionProps = &tui.SSHConnectionProps{}
+	var sshProxyProps = &tui.SSHConnectionProps{}
 	if opt.SSHType != executor.SSHTypeNone {
 		var err error
 		if len(opt.SSHProxyHost) != 0 {
@@ -274,12 +257,6 @@ This operation will upgrade %s %s cluster %s (with a concurrency of %d) to %s:%s
 		sshProxyProps,
 	)
 
-	// handle dir scheme changes
-	if hasImported {
-		if err := spec.HandleImportPathMigration(name); err != nil {
-			return err
-		}
-	}
 	ctx := ctxt.New(
 		context.Background(),
 		opt.Concurrency,

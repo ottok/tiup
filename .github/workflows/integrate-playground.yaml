@@ -4,31 +4,31 @@ name: integrate-playground
 on:
   schedule:
     # times are in UTC
-    - cron: '19 21 * * *'
+    - cron: "19 21 * * *"
   pull_request:
     branches:
       - master
       - release-*
       - feature/*
     paths-ignore:
-      - '**.html'
-      - '**.md'
-      - 'CNAME'
-      - 'LICENSE'
-      - 'doc/**'
-      - 'embed/templates/examples/**'
-      - 'embed/templates/examples/**'
-      - 'components/client/**'
-      - 'components/ctl/**'
-      - 'components/cluster/**'
-      - 'components/doc/**'
-      - 'components/errdoc/**'
-      - 'components/dm/**'
-      - 'server/**'
-      - 'pkg/version/version.go'
-      - '.github/workflows/integrate-cluster**'
-      - '.github/workflows/integrate-dm**'
-      - '.github/workflows/integrate-tiup**'
+      - "**.html"
+      - "**.md"
+      - "CNAME"
+      - "LICENSE"
+      - "doc/**"
+      - "embed/templates/examples/**"
+      - "embed/templates/examples/**"
+      - "components/client/**"
+      - "components/ctl/**"
+      - "components/cluster/**"
+      - "components/doc/**"
+      - "components/errdoc/**"
+      - "components/dm/**"
+      - "server/**"
+      - "pkg/version/version.go"
+      - ".github/workflows/integrate-cluster**"
+      - ".github/workflows/integrate-dm**"
+      - ".github/workflows/integrate-tiup**"
 
 jobs:
   playground:
@@ -41,13 +41,13 @@ jobs:
           - "test_playground"
     steps:
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Set up Go 1.24
-        uses: actions/setup-go@v4
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+           go-version-file: 'go.mod'
         id: go
 
       - name: Build build_tiup_playground_test
@@ -71,7 +71,7 @@ jobs:
 
       - name: Upload component log
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           overwrite: true
           name: playground_logs
@@ -84,7 +84,8 @@ jobs:
           for f in $(find ./tests/tiup-playground/_tmp/home/data -type f -name "*.log" | grep -vE '/data/(raft|db|region-meta)/'); do echo "${f}" && cat "${f}"; done
 
       - name: Upload coverage to Codecov
-        run: |
-          curl -Os https://uploader.codecov.io/latest/linux/codecov
-          chmod +x codecov
-          ./codecov -F playground -s ./tests/tiup-playground/cover -f '*.out'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./tests/tiup-playground/cover/*.out
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

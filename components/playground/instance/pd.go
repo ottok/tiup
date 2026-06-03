@@ -15,9 +15,12 @@ package instance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tiup/pkg/tidbver"
@@ -25,7 +28,7 @@ import (
 )
 
 // PDRole is the role of PD.
-type PDRole string
+type PDRole = string
 
 const (
 	// PDRoleNormal is the default role of PD
@@ -36,19 +39,23 @@ const (
 	PDRoleTSO PDRole = "tso"
 	// PDRoleScheduling is the role of PD scheduling
 	PDRoleScheduling PDRole = "scheduling"
+	// PDRoleRouter is the role of PD router
+	PDRoleRouter PDRole = "router"
+	// PDRoleResourceManager is the role of PD resource manager
+	PDRoleResourceManager PDRole = "resource-manager"
 )
 
 // PDInstance represent a running pd-server
 type PDInstance struct {
 	instance
-	shOpt         SharedOptions
-	role          PDRole
-	initEndpoints []*PDInstance
-	joinEndpoints []*PDInstance
-	pds           []*PDInstance
-	Process
+	shOpt             SharedOptions
+	initEndpoints     []*PDInstance
+	joinEndpoints     []*PDInstance
+	pds               []*PDInstance
 	kvIsSingleReplica bool
 }
+
+var _ Instance = &PDInstance{}
 
 // NewPDInstance return a PDInstance
 func NewPDInstance(role PDRole, shOpt SharedOptions, binPath, dir, host, configPath string, id int, pds []*PDInstance, port int, kvIsSingleReplica bool) *PDInstance {
@@ -65,8 +72,8 @@ func NewPDInstance(role PDRole, shOpt SharedOptions, binPath, dir, host, configP
 			Port:       utils.MustGetFreePort(host, 2380, shOpt.PortOffset),
 			StatusPort: utils.MustGetFreePort(host, port, shOpt.PortOffset),
 			ConfigPath: configPath,
+			role:       role,
 		},
-		role:              role,
 		pds:               pds,
 		kvIsSingleReplica: kvIsSingleReplica,
 	}
@@ -86,11 +93,15 @@ func (inst *PDInstance) InitCluster(pds []*PDInstance) *PDInstance {
 
 // Name return the name of pd.
 func (inst *PDInstance) Name() string {
-	switch inst.role {
+	switch inst.Role() {
 	case PDRoleTSO:
 		return fmt.Sprintf("tso-%d", inst.ID)
 	case PDRoleScheduling:
 		return fmt.Sprintf("scheduling-%d", inst.ID)
+	case PDRoleRouter:
+		return fmt.Sprintf("router-%d", inst.ID)
+	case PDRoleResourceManager:
+		return fmt.Sprintf("resource_manager-%d", inst.ID)
 	default:
 		return fmt.Sprintf("pd-%d", inst.ID)
 	}
@@ -98,7 +109,16 @@ func (inst *PDInstance) Name() string {
 
 // Start calls set inst.cmd and Start
 func (inst *PDInstance) Start(ctx context.Context) error {
-	configPath := filepath.Join(inst.Dir, "pd.toml")
+	var configFile string
+	switch inst.role {
+	case PDRoleNormal, PDRoleAPI:
+		configFile = "pd.toml"
+	case PDRoleResourceManager:
+		configFile = "resource_manager.toml"
+	default:
+		configFile = fmt.Sprintf("%s.toml", inst.role)
+	}
+	configPath := filepath.Join(inst.Dir, configFile)
 	if err := prepareConfig(
 		configPath,
 		inst.ConfigPath,
@@ -109,9 +129,9 @@ func (inst *PDInstance) Start(ctx context.Context) error {
 
 	uid := inst.Name()
 	var args []string
-	switch inst.role {
+	switch inst.Role() {
 	case PDRoleNormal, PDRoleAPI:
-		if inst.role == PDRoleAPI {
+		if inst.Role() == PDRoleAPI {
 			args = []string{"services", "api"}
 		}
 		args = append(args, []string{
@@ -169,31 +189,90 @@ func (inst *PDInstance) Start(ctx context.Context) error {
 		if tidbver.PDSupportMicroservicesWithName(inst.Version.String()) {
 			args = append(args, fmt.Sprintf("--name=%s", uid))
 		}
+	case PDRoleRouter:
+		endpoints := pdEndpoints(inst.pds, true)
+		args = []string{
+			"services",
+			"router",
+			fmt.Sprintf("--listen-addr=http://%s", utils.JoinHostPort(inst.Host, inst.StatusPort)),
+			fmt.Sprintf("--advertise-listen-addr=http://%s", utils.JoinHostPort(AdvertiseHost(inst.Host), inst.StatusPort)),
+			fmt.Sprintf("--backend-endpoints=%s", strings.Join(endpoints, ",")),
+			fmt.Sprintf("--log-file=%s", inst.LogFile()),
+			fmt.Sprintf("--config=%s", configPath),
+		}
+		if tidbver.PDSupportMicroservicesWithName(inst.Version.String()) {
+			args = append(args, fmt.Sprintf("--name=%s", uid))
+		}
+	case PDRoleResourceManager:
+		endpoints := pdEndpoints(inst.pds, true)
+		args = []string{
+			"services",
+			"resource-manager",
+			fmt.Sprintf("--listen-addr=http://%s", utils.JoinHostPort(inst.Host, inst.StatusPort)),
+			fmt.Sprintf("--advertise-listen-addr=http://%s", utils.JoinHostPort(AdvertiseHost(inst.Host), inst.StatusPort)),
+			fmt.Sprintf("--backend-endpoints=%s", strings.Join(endpoints, ",")),
+			fmt.Sprintf("--log-file=%s", inst.LogFile()),
+			fmt.Sprintf("--config=%s", configPath),
+		}
+		if tidbver.PDSupportMicroservicesWithName(inst.Version.String()) {
+			args = append(args, fmt.Sprintf("--name=%s", uid))
+		}
 	}
 
-	inst.Process = &process{cmd: PrepareCommand(ctx, inst.BinPath, args, nil, inst.Dir)}
-
-	logIfErr(inst.Process.SetOutputFile(inst.LogFile()))
-	return inst.Process.Start()
+	return inst.PrepareProcess(ctx, inst.BinPath, args, nil, inst.Dir)
 }
 
 // Component return the component name.
 func (inst *PDInstance) Component() string {
-	if inst.role == PDRoleNormal || inst.role == PDRoleAPI {
-		return "pd"
-	}
-	return string(inst.role)
+	return PDRoleNormal
 }
 
 // LogFile return the log file.
 func (inst *PDInstance) LogFile() string {
-	if inst.role == PDRoleNormal || inst.role == PDRoleAPI {
+	if inst.Role() == PDRoleNormal || inst.Role() == PDRoleAPI {
 		return filepath.Join(inst.Dir, "pd.log")
 	}
-	return filepath.Join(inst.Dir, fmt.Sprintf("%s.log", string(inst.role)))
+	return filepath.Join(inst.Dir, fmt.Sprintf("%s.log", inst.Role()))
 }
 
 // Addr return the listen address of PD
 func (inst *PDInstance) Addr() string {
 	return utils.JoinHostPort(AdvertiseHost(inst.Host), inst.StatusPort)
+}
+
+// Ready returns nil when PD is ready to serve.
+func (inst *PDInstance) Ready(ctx context.Context) error {
+	url := fmt.Sprintf("http://%s/pd/api/v1/members", inst.Addr())
+
+	var r struct {
+		Header struct {
+			ClusterID uint64 `json:"cluster_id"`
+		} `json:"header"`
+	}
+
+	ready := func() bool {
+		resp, err := http.Get(url)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			err = json.NewDecoder(resp.Body).Decode(&r)
+			return err == nil && r.Header.ClusterID != 0
+		}
+		return false
+	}
+
+	for {
+		if ready() {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+			// retry
+		}
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,6 +31,7 @@ import (
 	"github.com/pingcap/tiup/pkg/cluster/ctxt"
 	"github.com/pingcap/tiup/pkg/cluster/template/config"
 	"github.com/pingcap/tiup/pkg/cluster/template/scripts"
+	logprinter "github.com/pingcap/tiup/pkg/logger/printer"
 	"github.com/pingcap/tiup/pkg/meta"
 	"github.com/pingcap/tiup/pkg/set"
 	"github.com/pingcap/tiup/pkg/utils"
@@ -41,7 +43,6 @@ type PrometheusSpec struct {
 	Host                  string                 `yaml:"host"`
 	ManageHost            string                 `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort               int                    `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported              bool                   `yaml:"imported,omitempty"`
 	Patched               bool                   `yaml:"patched,omitempty"`
 	IgnoreExporter        bool                   `yaml:"ignore_exporter,omitempty"`
 	Port                  int                    `yaml:"port" default:"9090"`
@@ -55,7 +56,9 @@ type PrometheusSpec struct {
 	RemoteConfig          Remote                 `yaml:"remote_config,omitempty" validate:"remote_config:ignore"`
 	ExternalAlertmanagers []ExternalAlertmanager `yaml:"external_alertmanagers" validate:"external_alertmanagers:ignore"`
 	PushgatewayAddrs      []string               `yaml:"pushgateway_addrs,omitempty" validate:"pushgateway_addrs:ignore"`
-	Retention             string                 `yaml:"storage_retention,omitempty" validate:"storage_retention:editable"`
+	Retention             string                 `yaml:"storage_retention,omitempty" validate:"storage_retention:editable"` // deprecated
+	RetentionSize         string                 `yaml:"storage_retention_size,omitempty" validate:"storage_retention_size:editable"`
+	RetentionTime         string                 `yaml:"storage_retention_time,omitempty" validate:"storage_retention_time:editable"`
 	ResourceControl       meta.ResourceControl   `yaml:"resource_control,omitempty" validate:"resource_control:editable"`
 	Arch                  string                 `yaml:"arch,omitempty"`
 	OS                    string                 `yaml:"os,omitempty"`
@@ -64,7 +67,8 @@ type PrometheusSpec struct {
 	ScrapeInterval        string                 `yaml:"scrape_interval,omitempty" validate:"scrape_interval:editable"`
 	ScrapeTimeout         string                 `yaml:"scrape_timeout,omitempty" validate:"scrape_timeout:editable"`
 
-	AdditionalArgs []string `yaml:"additional_args,omitempty" validate:"additional_args:ignore"`
+	AdditionalArgs     []string       `yaml:"additional_args,omitempty" validate:"additional_args:ignore"`
+	NgMonitoringConfig map[string]any `yaml:"ng_monitoring_config,omitempty" validate:"ng_monitoring_config:ignore"`
 }
 
 // Remote prometheus remote config
@@ -106,11 +110,6 @@ func (s *PrometheusSpec) GetManageHost() string {
 	return s.Host
 }
 
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *PrometheusSpec) IsImported() bool {
-	return s.Imported
-}
-
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
 func (s *PrometheusSpec) IgnoreMonitorAgent() bool {
 	return s.IgnoreExporter
@@ -146,7 +145,7 @@ func (c *MonitorComponent) CalculateVersion(clusterVersion string) string {
 
 // SetVersion implements Component interface.
 func (c *MonitorComponent) SetVersion(version string) {
-	*c.Topology.BaseTopo().PrometheusVersion = version
+	*c.BaseTopo().PrometheusVersion = version
 }
 
 // Instances implements Component interface.
@@ -167,7 +166,7 @@ func (c *MonitorComponent) Instances() []Instance {
 			Name:         c.Name(),
 			Host:         s.Host,
 			ManageHost:   s.ManageHost,
-			ListenHost:   c.Topology.BaseTopo().GlobalOptions.ListenHost,
+			ListenHost:   c.BaseTopo().GlobalOptions.ListenHost,
 			Port:         s.Port,
 			SSHP:         s.SSHPort,
 			NumaNode:     s.NumaNode,
@@ -181,12 +180,12 @@ func (c *MonitorComponent) Instances() []Instance {
 				return statusByHost(s.GetManageHost(), s.Port, "/-/ready", timeout, nil)
 			},
 			UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-				return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg)
+				return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg, "")
 			},
 			Component: c,
 		}, c.Topology}
 		if s.NgPort > 0 {
-			mi.BaseInstance.Ports = append(mi.BaseInstance.Ports, s.NgPort)
+			mi.Ports = append(mi.Ports, s.NgPort)
 		}
 		ins = append(ins, mi)
 	}
@@ -276,7 +275,6 @@ func (i *MonitorInstance) InitConfig(
 	cfg := &scripts.PrometheusScript{
 		Port:                spec.Port,
 		WebExternalURL:      fmt.Sprintf("http://%s", utils.JoinHostPort(spec.Host, spec.Port)),
-		Retention:           getRetention(spec.Retention),
 		EnableNG:            spec.NgPort > 0,
 		EnablePromAgentMode: spec.EnablePromAgentMode, // Get from spec directly
 
@@ -288,6 +286,14 @@ func (i *MonitorInstance) InitConfig(
 
 		AdditionalArgs: spec.AdditionalArgs,
 	}
+	// Set retention policy
+	logPtr := ctx.Value(logprinter.ContextKeyLogger).(*logprinter.Logger)
+	if spec.RetentionTime == "" { // keep backward compatiability
+		cfg.RetentionTime = getRetentionTime(logPtr, spec.Retention)
+	} else {
+		cfg.RetentionTime = getRetentionTime(logPtr, spec.RetentionTime)
+	}
+	cfg.RetentionSize = getRetentionSize(logPtr, spec.RetentionSize)
 
 	// Check if agent mode is enabled in additional arguments
 	if !cfg.EnablePromAgentMode {
@@ -343,6 +349,20 @@ func (i *MonitorInstance) InitConfig(
 			scheduling := servers.Index(i).Interface().(*SchedulingSpec)
 			uniqueHosts.Insert(scheduling.Host)
 			cfig.AddScheduling(scheduling.Host, uint64(scheduling.Port))
+		}
+	}
+	if servers, found := topoHasField("RouterServers"); found {
+		for i := 0; i < servers.Len(); i++ {
+			router := servers.Index(i).Interface().(*RouterSpec)
+			uniqueHosts.Insert(router.Host)
+			cfig.AddRouter(router.Host, uint64(router.Port))
+		}
+	}
+	if servers, found := topoHasField("ResourceManagerServers"); found {
+		for i := 0; i < servers.Len(); i++ {
+			rm := servers.Index(i).Interface().(*ResourceManagerSpec)
+			uniqueHosts.Insert(rm.Host)
+			cfig.AddResourceManager(rm.Host, uint64(rm.Port))
 		}
 	}
 	if servers, found := topoHasField("TiKVServers"); found {
@@ -478,24 +498,37 @@ func (i *MonitorInstance) InitConfig(
 	}
 
 	if spec.NgPort > 0 {
-		pds := []string{}
+		pdAddrs := []string{}
 		if servers, found := topoHasField("PDServers"); found {
 			for i := 0; i < servers.Len(); i++ {
 				pd := servers.Index(i).Interface().(*PDSpec)
-				pds = append(pds, fmt.Sprintf("\"%s\"", utils.JoinHostPort(pd.Host, pd.ClientPort)))
+				pdAddrs = append(pdAddrs, utils.JoinHostPort(pd.Host, pd.ClientPort))
 			}
 		}
-		ngcfg := &config.NgMonitoringConfig{
-			ClusterName:      clusterName,
-			Address:          utils.JoinHostPort(i.GetListenHost(), spec.NgPort),
-			AdvertiseAddress: utils.JoinHostPort(i.GetHost(), spec.NgPort),
-			PDAddrs:          strings.Join(pds, ","),
-			TLSEnabled:       enableTLS,
 
-			DeployDir: paths.Deploy,
-			DataDir:   paths.Data[0],
-			LogDir:    paths.Log,
+		// Build base ng-monitoring config as a map so user overrides via
+		// server_configs.ng_monitoring and per-instance ng_monitoring_config
+		// are merged on top (same pattern as PD/TiKV/TiDB).
+		baseConfig := map[string]any{
+			"address":           utils.JoinHostPort(i.GetListenHost(), spec.NgPort),
+			"advertise-address": utils.JoinHostPort(i.GetHost(), spec.NgPort),
+			"log.path":          paths.Log,
+			"log.level":         "INFO",
+			"pd.endpoints":      pdAddrs,
+			"storage.path":      paths.Data[0],
 		}
+		if enableTLS {
+			baseConfig["security.ca-path"] = fmt.Sprintf("%s/tls/ca.crt", paths.Deploy)
+			baseConfig["security.cert-path"] = fmt.Sprintf("%s/tls/prometheus.crt", paths.Deploy)
+			baseConfig["security.key-path"] = fmt.Sprintf("%s/tls/prometheus.pem", paths.Deploy)
+		}
+
+		// Gather global and per-instance ng-monitoring user config.
+		var globalNgConfig map[string]any
+		if s, ok := i.topo.(*Specification); ok {
+			globalNgConfig = s.ServerConfigs.NGMonitoring
+		}
+		userConfig := MergeConfig(globalNgConfig, spec.NgMonitoringConfig)
 
 		if servers, found := topoHasField("Monitors"); found {
 			for idx := 0; idx < servers.Len(); idx++ {
@@ -506,7 +539,11 @@ func (i *MonitorInstance) InitConfig(
 		}
 
 		fp = filepath.Join(paths.Cache, fmt.Sprintf("ngmonitoring_%s_%d.toml", i.GetHost(), i.GetPort()))
-		if err := ngcfg.ConfigToFile(fp); err != nil {
+		ngConf, err := Merge2Toml("ng_monitoring", baseConfig, userConfig)
+		if err != nil {
+			return err
+		}
+		if err := utils.WriteFile(fp, ngConf, 0755); err != nil {
 			return err
 		}
 		dst = filepath.Join(paths.Deploy, "conf", "ngmonitoring.toml")
@@ -670,9 +707,7 @@ func mergeAdditionalScrapeConf(source string, addition map[string]any) error {
 	}
 
 	for _, job := range result["scrape_configs"].([]any) {
-		for k, v := range addition {
-			job.(map[string]any)[k] = v
-		}
+		maps.Copy(job.(map[string]any), addition)
 	}
 	bytes, err = yaml.Marshal(result)
 	if err != nil {
@@ -681,9 +716,25 @@ func mergeAdditionalScrapeConf(source string, addition map[string]any) error {
 	return utils.WriteFile(source, bytes, 0644)
 }
 
-func getRetention(retention string) string {
+func getRetentionSize(l *logprinter.Logger, retention string) string {
+	retention = strings.ToUpper(strings.TrimSpace(retention))
+	valid, _ := regexp.MatchString("^[1-9]\\d*(B|KB|MB|GB|TB|PB|EB)$", retention)
+	if retention == "" || !valid {
+		if !valid && l != nil {
+			l.Warnf("invalid retention size %s, ignored.", retention)
+		}
+		return ""
+	}
+	return retention
+}
+
+func getRetentionTime(l *logprinter.Logger, retention string) string {
+	retention = strings.TrimSpace(retention)
 	valid, _ := regexp.MatchString("^[1-9]\\d*d$", retention)
 	if retention == "" || !valid {
+		if !valid && l != nil {
+			l.Warnf("invalid retention time %s, using 30d as default", retention)
+		}
 		return "30d"
 	}
 	return retention

@@ -25,7 +25,6 @@ func TestRenderSpec(t *testing.T) {
 		InstanceSpec: &spec.TiDBSpec{
 			Host:       "172.16.5.140",
 			SSHPort:    22,
-			Imported:   false,
 			Port:       4000,
 			StatusPort: 10080,
 			DeployDir:  "/home/test/deploy/tidb-4000",
@@ -41,7 +40,6 @@ func TestRenderSpec(t *testing.T) {
 		InstanceSpec: &spec.PDSpec{
 			Host:       "172.16.5.140",
 			SSHPort:    22,
-			Imported:   false,
 			Name:       "pd-1",
 			ClientPort: 2379,
 			PeerPort:   2380,
@@ -75,6 +73,20 @@ func TestRenderSpec(t *testing.T) {
 			Name:      "scheduling-1",
 			DeployDir: "/home/test/deploy/scheduling-3379",
 			DataDir:   "/home/test/deploy/scheduling-3379/data",
+		},
+	}}
+	// s.BaseInstance.InstanceSpec
+	dir, err = renderSpec("{{.DataDir}}", s, "test-scheduling")
+	assert.Nil(t, err)
+	assert.NotEmpty(t, dir)
+
+	s = &spec.RouterInstance{BaseInstance: spec.BaseInstance{
+		InstanceSpec: &spec.RouterSpec{
+			Host:      "172.16.5.140",
+			SSHPort:   22,
+			Name:      "router-1",
+			DeployDir: "/home/test/deploy/router-3379",
+			DataDir:   "/home/test/deploy/router-3379/data",
 		},
 	}}
 	// s.BaseInstance.InstanceSpec

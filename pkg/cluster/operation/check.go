@@ -59,7 +59,8 @@ var (
 	CheckNameNet           = "network"
 	CheckNameLimits        = "limits"
 	CheckNameSysService    = "service"
-	CheckNameSELinux       = "selinux"
+	CheckNameSELinuxConf   = "selinux_conf"
+	CheckNameSELinuxStatus = "selinux_status"
 	CheckNameCommand       = "command"
 	CheckNameFio           = "fio"
 	CheckNameTHP           = "thp"
@@ -125,7 +126,7 @@ func CheckSystemInfo(opt *CheckOptions, rawData []byte) []*CheckResult {
 		results = append(results,
 			&CheckResult{
 				Name: CheckNameNTP,
-				Err:  fmt.Errorf("The NTPd daemon or Chronyd daemon may be not installed"),
+				Err:  fmt.Errorf("the NTPd daemon or Chronyd daemon may be not installed"),
 				Warn: true,
 			},
 		)
@@ -174,7 +175,7 @@ func checkOSInfo(opt *CheckOptions, osInfo *sysinfo.OS) *CheckResult {
 	switch osInfo.Vendor {
 	case "kylin":
 		// VERSION_ID="V10"
-		if ver, _ := strconv.ParseFloat(strings.Trim(osInfo.Version, "V"), 64); ver < 10 {
+		if compareVersion(strings.Trim(osInfo.Version, "V"), "10") < 0 {
 			result.Err = fmt.Errorf("%s %s not supported, use version V10 or higher",
 				osInfo.Name, osInfo.Release)
 			return result
@@ -188,7 +189,7 @@ func checkOSInfo(opt *CheckOptions, osInfo *sysinfo.OS) *CheckResult {
 		// Amazon Linux 2 is based on CentOS 7 and is recommended for
 		// AWS Graviton 2 (ARM64) deployments.
 		// https://aws.amazon.com/amazon-linux-2/
-		if ver, _ := strconv.ParseFloat(osInfo.Version, 64); ver < 2 || ver >= 3 {
+		if compareVersion(osInfo.Version, "2") < 0 || compareVersion(osInfo.Version, "3") >= 0 {
 			result.Err = fmt.Errorf("%s %s not supported, use Amazon Linux 2 or Amazon Linux 2023 please",
 				osInfo.Name, osInfo.Release)
 			return result
@@ -196,21 +197,21 @@ func checkOSInfo(opt *CheckOptions, osInfo *sysinfo.OS) *CheckResult {
 	case "centos":
 		// CentOS Linux is EOL
 		// CentOS Stream 9 and newer is still fine
-		if ver, _ := strconv.ParseFloat(osInfo.Version, 64); ver < 9 {
+		if compareVersion(osInfo.Version, "9") < 0 {
 			result.Err = fmt.Errorf("%s %s not supported, use version 9 or higher",
 				osInfo.Name, osInfo.Release)
 			return result
 		}
 	case "redhat", "rhel", "ol":
 		// RHEL 8.4 or newer 8.x versions are supported
-		if ver, _ := strconv.ParseFloat(osInfo.Version, 64); ver < 8.4 || ver >= 9 {
-			result.Err = fmt.Errorf("%s %s not supported, use version 8.4 or a later 8.x version please",
+		if compareVersion(osInfo.Version, "8.4") < 0 || compareVersion(osInfo.Version, "10") >= 0 {
+			result.Err = fmt.Errorf("%s %s not supported, use version 8.x or 9.x version please",
 				osInfo.Name, osInfo.Release)
 			return result
 		}
 	case "rocky":
 		// Rocky Linux
-		if ver, _ := strconv.ParseFloat(osInfo.Version, 64); ver < 9.1 {
+		if compareVersion(osInfo.Version, "9.1") < 0 {
 			result.Err = fmt.Errorf("%s %s not supported, use version 9.1 or later please",
 				osInfo.Name, osInfo.Release)
 			return result
@@ -220,7 +221,7 @@ func checkOSInfo(opt *CheckOptions, osInfo *sysinfo.OS) *CheckResult {
 		msg := "Debian support is not fully tested, be careful"
 		result.Err = fmt.Errorf("%s (%s)", result.Msg, msg)
 		result.Warn = true
-		if ver, _ := strconv.ParseFloat(osInfo.Version, 64); ver < 10 {
+		if compareVersion(osInfo.Version, "10") < 0 {
 			result.Err = fmt.Errorf("%s %s not supported, use version 10 or higher (%s)",
 				osInfo.Name, osInfo.Release, msg)
 			result.Warn = false
@@ -231,7 +232,7 @@ func checkOSInfo(opt *CheckOptions, osInfo *sysinfo.OS) *CheckResult {
 		msg := "Ubuntu support is not fully tested, be careful"
 		result.Err = fmt.Errorf("%s (%s)", result.Msg, msg)
 		result.Warn = true
-		if ver, _ := strconv.ParseFloat(osInfo.Version, 64); ver < 20.04 {
+		if compareVersion(osInfo.Version, "20.04") < 0 {
 			result.Err = fmt.Errorf("%s %s not supported, use version 20.04 or higher (%s)",
 				osInfo.Name, osInfo.Release, msg)
 			result.Warn = false
@@ -260,7 +261,7 @@ func checkNTP(ntpInfo *insight.TimeStat) *CheckResult {
 	}
 
 	if ntpInfo.Sync == "none" {
-		result.Err = fmt.Errorf("The NTPd daemon may be not start")
+		result.Err = fmt.Errorf("the NTPd daemon may be not start")
 		result.Warn = true
 		return result
 	}
@@ -319,7 +320,7 @@ func checkCPU(opt *CheckOptions, cpuInfo *sysinfo.CPU) []*CheckResult {
 	} else {
 		results = append(results, &CheckResult{
 			Name: CheckNameCPUGovernor,
-			Err:  fmt.Errorf("Unable to determine current CPU frequency governor policy"),
+			Err:  fmt.Errorf("unable to determine current CPU frequency governor policy"),
 			Warn: true,
 		})
 	}
@@ -567,10 +568,10 @@ func CheckServices(ctx context.Context, e ctxt.Executor, host, service string, d
 	return result
 }
 
-// CheckSELinux checks if SELinux is enabled on the host
-func CheckSELinux(ctx context.Context, e ctxt.Executor, sudo bool) *CheckResult {
+// CheckSELinuxConf checks if SELinux is enabled on the host
+func CheckSELinuxConf(ctx context.Context, e ctxt.Executor, sudo bool) *CheckResult {
 	result := &CheckResult{
-		Name: CheckNameSELinux,
+		Name: CheckNameSELinuxConf,
 	}
 	m := module.NewShellModule(module.ShellModuleConfig{
 		// ignore grep errors, the file may not exist for some systems
@@ -591,9 +592,33 @@ func CheckSELinux(ctx context.Context, e ctxt.Executor, sudo bool) *CheckResult 
 	}
 
 	if lines > 0 {
-		result.Err = fmt.Errorf("SELinux is not disabled")
-	} else {
-		result.Msg = "SELinux is disabled"
+		result.Err = fmt.Errorf("SELinux is not configured to be disabled")
+		return result
+	}
+	result.Msg = "SELinux is disabled in configuration"
+	return result
+}
+
+// CheckSELinuxStatus checks if SELinux is enabled on the host
+func CheckSELinuxStatus(ctx context.Context, e ctxt.Executor, sudo bool) *CheckResult {
+	result := &CheckResult{
+		Name: CheckNameSELinuxStatus,
+	}
+	m := module.NewShellModule(module.ShellModuleConfig{
+		Command: "getenforce",
+		Sudo:    sudo,
+	})
+	stdout, stderr, err := m.Execute(ctx, e)
+	if err != nil {
+		result.Err = fmt.Errorf("%w %s", err, stderr)
+		return result
+	}
+	out := strings.Trim(string(stdout), "\n")
+	if out == "Enforcing" {
+		result.Err = fmt.Errorf("SELinux is in Enforcing mode, Update the configuration and reboot")
+	} else if out == "Permissive" {
+		result.Err = fmt.Errorf("SELinux is in Permissive mode, disabling is recommended")
+		result.Warn = true
 	}
 	return result
 }
@@ -1019,4 +1044,31 @@ func CheckTimeZone(ctx context.Context, topo *spec.Specification, host string, r
 		})
 	}
 	return results
+}
+
+// compareVersion compares two version strings v1 and v2.
+// It returns 1 if v1 > v2, -1 if v1 < v2, and 0 if v1 == v2.
+func compareVersion(v1, v2 string) int {
+	// Split version strings by "." into slices
+	p1 := strings.Split(v1, ".")
+	p2 := strings.Split(v2, ".")
+
+	for i := 0; i < len(p1) || i < len(p2); i++ {
+		var n1, n2 int
+		// Convert string segment to integer for numeric comparison
+		if i < len(p1) {
+			n1, _ = strconv.Atoi(p1[i])
+		}
+		if i < len(p2) {
+			n2, _ = strconv.Atoi(p2[i])
+		}
+
+		if n1 > n2 {
+			return 1
+		}
+		if n1 < n2 {
+			return -1
+		}
+	}
+	return 0
 }

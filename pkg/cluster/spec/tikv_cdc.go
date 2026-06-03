@@ -36,7 +36,6 @@ type TiKVCDCSpec struct {
 	Host            string               `yaml:"host"`
 	ManageHost      string               `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort         int                  `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported        bool                 `yaml:"imported,omitempty"`
 	Patched         bool                 `yaml:"patched,omitempty"`
 	IgnoreExporter  bool                 `yaml:"ignore_exporter,omitempty"`
 	Port            int                  `yaml:"port" default:"8600"`
@@ -79,12 +78,6 @@ func (s *TiKVCDCSpec) GetManageHost() string {
 		return s.ManageHost
 	}
 	return s.Host
-}
-
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *TiKVCDCSpec) IsImported() bool {
-	// TiDB-Ansible do not support TiKV-CDC
-	return false
 }
 
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
@@ -152,7 +145,7 @@ func (c *TiKVCDCComponent) Instances() []Instance {
 				return statusByHost(s.GetManageHost(), s.Port, "/status", timeout, tlsCfg)
 			},
 			UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-				return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg)
+				return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg, "")
 			},
 			Component: c,
 		}, c.Topology}

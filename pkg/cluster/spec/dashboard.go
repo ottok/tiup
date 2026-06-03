@@ -83,12 +83,6 @@ func (s *DashboardSpec) GetManageHost() string {
 	return s.Host
 }
 
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *DashboardSpec) IsImported() bool {
-	// TiDB-Ansible do not support dashboard
-	return false
-}
-
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
 func (s *DashboardSpec) IgnoreMonitorAgent() bool {
 	return s.IgnoreExporter
@@ -155,7 +149,7 @@ func (c *DashboardComponent) Instances() []Instance {
 			},
 			StatusFn: s.Status,
 			UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-				return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg)
+				return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg, "")
 			},
 			Component: c,
 		}, c.Topology})

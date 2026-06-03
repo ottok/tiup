@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -42,7 +43,6 @@ type GrafanaSpec struct {
 	Host              string               `yaml:"host"`
 	ManageHost        string               `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort           int                  `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported          bool                 `yaml:"imported,omitempty"`
 	Patched           bool                 `yaml:"patched,omitempty"`
 	IgnoreExporter    bool                 `yaml:"ignore_exporter,omitempty"`
 	Port              int                  `yaml:"port" default:"3000"`
@@ -90,11 +90,6 @@ func (s *GrafanaSpec) GetManageHost() string {
 	return s.Host
 }
 
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *GrafanaSpec) IsImported() bool {
-	return s.Imported
-}
-
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
 func (s *GrafanaSpec) IgnoreMonitorAgent() bool {
 	return s.IgnoreExporter
@@ -130,7 +125,7 @@ func (c *GrafanaComponent) CalculateVersion(clusterVersion string) string {
 
 // SetVersion implements Component interface.
 func (c *GrafanaComponent) SetVersion(version string) {
-	*c.Topology.BaseTopo().GrafanaVersion = version
+	*c.BaseTopo().GrafanaVersion = version
 }
 
 // Instances implements Component interface.
@@ -145,7 +140,7 @@ func (c *GrafanaComponent) Instances() []Instance {
 				Name:         c.Name(),
 				Host:         s.Host,
 				ManageHost:   s.ManageHost,
-				ListenHost:   c.Topology.BaseTopo().GlobalOptions.ListenHost,
+				ListenHost:   c.BaseTopo().GlobalOptions.ListenHost,
 				Port:         s.Port,
 				SSHP:         s.SSHPort,
 				NumaNode:     "",
@@ -161,7 +156,7 @@ func (c *GrafanaComponent) Instances() []Instance {
 					return statusByHost(s.GetManageHost(), s.Port, "/login", timeout, nil)
 				},
 				UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-					return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg)
+					return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg, "")
 				},
 				Component: c,
 			},
@@ -234,9 +229,7 @@ func (i *GrafanaInstance) InitConfig(
 	if userConfig == nil {
 		userConfig = make(map[string]string)
 	}
-	for k, v := range spec.Config {
-		userConfig[k] = v
-	}
+	maps.Copy(userConfig, spec.Config)
 	err := mergeAdditionalGrafanaConf(fp, userConfig)
 	if err != nil {
 		return err
@@ -270,7 +263,7 @@ func (i *GrafanaInstance) InitConfig(
 
 	// Get monitors
 	topo := reflect.ValueOf(i.topo)
-	if topo.Kind() == reflect.Ptr {
+	if topo.Kind() == reflect.Pointer {
 		topo = topo.Elem()
 	}
 	val := topo.FieldByName("Monitors")
@@ -365,7 +358,7 @@ func (i *GrafanaInstance) initDashboards(ctx context.Context, e ctxt.Executor, s
 
 	// Get the monitor component to check if VM is the default datasource
 	topo := reflect.ValueOf(i.topo)
-	if topo.Kind() == reflect.Ptr {
+	if topo.Kind() == reflect.Pointer {
 		topo = topo.Elem()
 	}
 	val := topo.FieldByName("Monitors")

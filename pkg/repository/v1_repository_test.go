@@ -194,10 +194,10 @@ func TestUpdateLocalSnapshot(t *testing.T) {
 	mirror.Resources[v1manifest.ManifestURLSnapshot] = serSnap
 	timestamp.Meta[v1manifest.ManifestURLSnapshot].Hashes[v1manifest.SHA256] = hash(serSnap)
 
-	signedTs := serialize(t, timestamp, privk)
-	mirror.Resources[v1manifest.ManifestURLTimestamp] = signedTs
+	signedTS := serialize(t, timestamp, privk)
+	mirror.Resources[v1manifest.ManifestURLTimestamp] = signedTS
 	ts := &v1manifest.Manifest{Signed: &v1manifest.Timestamp{}}
-	err := cjson.Unmarshal([]byte(signedTs), ts)
+	err := cjson.Unmarshal([]byte(signedTS), ts)
 	assert.Nil(t, err)
 	local.Manifests[v1manifest.ManifestFilenameTimestamp] = ts
 
@@ -459,13 +459,19 @@ func TestLatestStableVersion(t *testing.T) {
 	mirror.Resources[v1manifest.ManifestURLTimestamp] = serialize(t, ts, priv)
 	mirror.Resources["/7.foo.json"] = serialize(t, foo, indexPriv)
 
-	v, _, err := repo.LatestStableVersion("foo", false)
+	v, _, err := repo.LatestStableVersion("foo", false, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "v2.0.1", v.String())
 
-	v, _, err = repo.LatestStableVersion("foo", true)
+	v, _, err = repo.LatestStableVersion("foo", true, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "v2.0.3", v.String())
+
+	v, _, err = repo.LatestStableVersion("foo", true, func(s string) bool {
+		return s == "v2.0.3"
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "v2.0.1", v.String())
 }
 
 func TestLatestStableVersionWithPrerelease(t *testing.T) {
@@ -497,7 +503,7 @@ func TestLatestStableVersionWithPrerelease(t *testing.T) {
 	mirror.Resources[v1manifest.ManifestURLTimestamp] = serialize(t, ts, priv)
 	mirror.Resources["/7.foo.json"] = serialize(t, foo, indexPriv)
 
-	v, _, err := repo.LatestStableVersion("foo", false)
+	v, _, err := repo.LatestStableVersion("foo", false, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "v3.0.0-rc", v.String())
 }
