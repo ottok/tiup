@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -43,7 +42,6 @@ type TiFlashSpec struct {
 	Host                 string               `yaml:"host"`
 	ManageHost           string               `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort              int                  `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported             bool                 `yaml:"imported,omitempty"`
 	Patched              bool                 `yaml:"patched,omitempty"`
 	IgnoreExporter       bool                 `yaml:"ignore_exporter,omitempty"`
 	TCPPort              int                  `yaml:"tcp_port" default:"9000"`
@@ -150,11 +148,6 @@ func (s *TiFlashSpec) GetManageHost() string {
 		return s.ManageHost
 	}
 	return s.Host
-}
-
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *TiFlashSpec) IsImported() bool {
-	return s.Imported
 }
 
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
@@ -326,7 +319,7 @@ func (c *TiFlashComponent) Instances() []Instance {
 			},
 			StatusFn: s.Status,
 			UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-				return UptimeByHost(s.GetManageHost(), s.StatusPort, timeout, tlsCfg)
+				return UptimeByHost(s.GetManageHost(), s.StatusPort, timeout, tlsCfg, "")
 			},
 			Component: c,
 		}, c.Topology}
@@ -563,8 +556,6 @@ server_configs:
     status.metrics_port: %[8]d
     logger.errorlog: "%[2]s/tiflash_error.log"
     logger.log: "%[2]s/tiflash.log"
-    logger.count: 20
-    logger.size: "1000M"
     %[13]s
     raft.pd_addr: "%[9]s"
     %[12]s
@@ -795,28 +786,6 @@ func (i *TiFlashInstance) InitConfig(
 		return err
 	}
 
-	// merge config files for imported instance
-	if i.IsImported() {
-		configPath := ClusterPath(
-			clusterName,
-			AnsibleImportedConfigPath,
-			fmt.Sprintf(
-				"%s-learner-%s-%d.toml",
-				i.ComponentName(),
-				i.GetHost(),
-				i.GetPort(),
-			),
-		)
-		importConfig, err := os.ReadFile(configPath)
-		if err != nil {
-			return err
-		}
-		conf, err = mergeImported(importConfig, conf)
-		if err != nil {
-			return err
-		}
-	}
-
 	err = i.mergeTiFlashLearnerServerConfig(ctx, e, conf, spec.LearnerConfig, paths)
 	if err != nil {
 		return err
@@ -825,32 +794,6 @@ func (i *TiFlashInstance) InitConfig(
 	// Init the configuration using cfg and server_configs
 	if conf, err = i.initTiFlashConfig(ctx, version, topo.ServerConfigs.TiFlash, paths); err != nil {
 		return err
-	}
-
-	// merge config files for imported instance
-	if i.IsImported() {
-		configPath := ClusterPath(
-			clusterName,
-			AnsibleImportedConfigPath,
-			fmt.Sprintf(
-				"%s-%s-%d.toml",
-				i.ComponentName(),
-				i.GetHost(),
-				i.GetPort(),
-			),
-		)
-		importConfig, err := os.ReadFile(configPath)
-		if err != nil {
-			return err
-		}
-		// TODO: maybe we also need to check the imported config?
-		// if _, err = checkTiFlashStorageConfigWithVersion(clusterVersion, importConfig); err != nil {
-		// 	return err
-		// }
-		conf, err = mergeImported(importConfig, conf)
-		if err != nil {
-			return err
-		}
 	}
 
 	// Check the configuration of instance level

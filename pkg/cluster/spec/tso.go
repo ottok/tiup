@@ -74,10 +74,7 @@ func (s *TSOSpec) Status(ctx context.Context, timeout time.Duration, tlsCfg *tls
 		return "ERR"
 	}
 	res := "Up"
-	enableTLS := false
-	if tlsCfg != nil {
-		enableTLS = true
-	}
+	enableTLS := tlsCfg != nil
 	if s.GetAdvertiseListenURL(enableTLS) == primary {
 		res += "|P"
 	}
@@ -110,11 +107,6 @@ func (s *TSOSpec) GetManageHost() string {
 		return s.ManageHost
 	}
 	return s.Host
-}
-
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *TSOSpec) IsImported() bool {
-	return false
 }
 
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
@@ -193,7 +185,7 @@ func (c *TSOComponent) Instances() []Instance {
 				},
 				StatusFn: s.Status,
 				UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-					return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg)
+					return UptimeByHost(s.GetManageHost(), s.Port, timeout, tlsCfg, "")
 				},
 				Component: c,
 			},
@@ -324,10 +316,7 @@ func (i *TSOInstance) IsPrimary(ctx context.Context, topo Topology, tlsCfg *tls.
 	}
 
 	spec := i.InstanceSpec.(*TSOSpec)
-	enableTLS := false
-	if tlsCfg != nil {
-		enableTLS = true
-	}
+	enableTLS := tlsCfg != nil
 
 	return primary == spec.GetAdvertiseListenURL(enableTLS), nil
 }

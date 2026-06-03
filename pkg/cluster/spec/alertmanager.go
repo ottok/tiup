@@ -32,7 +32,6 @@ type AlertmanagerSpec struct {
 	Host            string               `yaml:"host"`
 	ManageHost      string               `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort         int                  `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported        bool                 `yaml:"imported,omitempty"`
 	Patched         bool                 `yaml:"patched,omitempty"`
 	IgnoreExporter  bool                 `yaml:"ignore_exporter,omitempty"`
 	WebPort         int                  `yaml:"web_port" default:"9093"`
@@ -77,11 +76,6 @@ func (s *AlertmanagerSpec) GetManageHost() string {
 	return s.Host
 }
 
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *AlertmanagerSpec) IsImported() bool {
-	return s.Imported
-}
-
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
 func (s *AlertmanagerSpec) IgnoreMonitorAgent() bool {
 	return s.IgnoreExporter
@@ -108,7 +102,7 @@ func (c *AlertManagerComponent) Source() string {
 // CalculateVersion implements the Component interface
 func (c *AlertManagerComponent) CalculateVersion(_ string) string {
 	// always not follow cluster version, use ""(latest) by default
-	version := c.Topology.BaseTopo().AlertManagerVersion
+	version := c.BaseTopo().AlertManagerVersion
 	if version != nil {
 		return *version
 	}
@@ -117,12 +111,12 @@ func (c *AlertManagerComponent) CalculateVersion(_ string) string {
 
 // SetVersion implements Component interface.
 func (c *AlertManagerComponent) SetVersion(version string) {
-	*c.Topology.BaseTopo().AlertManagerVersion = version
+	*c.BaseTopo().AlertManagerVersion = version
 }
 
 // Instances implements Component interface.
 func (c *AlertManagerComponent) Instances() []Instance {
-	alertmanagers := c.Topology.BaseTopo().Alertmanagers
+	alertmanagers := c.BaseTopo().Alertmanagers
 
 	ins := make([]Instance, 0, len(alertmanagers))
 
@@ -133,7 +127,7 @@ func (c *AlertManagerComponent) Instances() []Instance {
 				Name:         c.Name(),
 				Host:         s.Host,
 				ManageHost:   s.ManageHost,
-				ListenHost:   utils.Ternary(s.ListenHost != "", s.ListenHost, c.Topology.BaseTopo().GlobalOptions.ListenHost).(string),
+				ListenHost:   utils.Ternary(s.ListenHost != "", s.ListenHost, c.BaseTopo().GlobalOptions.ListenHost).(string),
 				Port:         s.WebPort,
 				SSHP:         s.SSHPort,
 				NumaNode:     s.NumaNode,
@@ -151,7 +145,7 @@ func (c *AlertManagerComponent) Instances() []Instance {
 					return statusByHost(s.GetManageHost(), s.WebPort, "/-/ready", timeout, nil)
 				},
 				UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-					return UptimeByHost(s.GetManageHost(), s.WebPort, timeout, tlsCfg)
+					return UptimeByHost(s.GetManageHost(), s.WebPort, timeout, tlsCfg, "")
 				},
 				Component: c,
 			},

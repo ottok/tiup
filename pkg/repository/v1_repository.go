@@ -146,7 +146,7 @@ func (r *V1Repository) UpdateComponents(specs []ComponentSpec) error {
 		}
 
 		if spec.Version == "" {
-			ver, _, err := r.LatestStableVersion(spec.ID, false)
+			ver, _, err := r.LatestStableVersion(spec.ID, false, nil)
 			if err != nil {
 				errs = append(errs, err.Error())
 				continue
@@ -259,12 +259,8 @@ func (r *V1Repository) updateLocalSnapshot() (*v1manifest.Snapshot, error) {
 	}
 	hash256 := sha256.Sum256(bytes)
 
-	snapshotChanged := true
 	// TODO: check changed in fetchTimestamp by compared to the raw local snapshot instead of timestamp.
-	if snapshotExists && hash.Hashes[v1manifest.SHA256] == hex.EncodeToString(hash256[:]) {
-		// Nothing has changed in snapshot.json
-		snapshotChanged = false
-	}
+	snapshotChanged := !snapshotExists || hash.Hashes[v1manifest.SHA256] != hex.EncodeToString(hash256[:])
 
 	if snapshotChanged {
 		manifest, err := r.fetchManifestWithHash(v1manifest.ManifestURLSnapshot, &snapshot, &hash)
@@ -560,8 +556,8 @@ func (r *V1Repository) fetchTimestamp() (changed bool, manifest *v1manifest.Mani
 
 	hash := ts.SnapshotHash()
 
-	var localTs v1manifest.Timestamp
-	_, exists, err := r.local.LoadManifest(&localTs)
+	var localTS v1manifest.Timestamp
+	_, exists, err := r.local.LoadManifest(&localTS)
 	if err != nil {
 		return false, nil, err
 	}
@@ -569,9 +565,9 @@ func (r *V1Repository) fetchTimestamp() (changed bool, manifest *v1manifest.Mani
 	switch {
 	case !exists:
 		changed = true
-	case ts.Version < localTs.Version:
-		return false, nil, fmt.Errorf("timestamp manifest has a version number < the old manifest (%v, %v)", ts.Version, localTs.Version)
-	case hash.Hashes[v1manifest.SHA256] != localTs.SnapshotHash().Hashes[v1manifest.SHA256]:
+	case ts.Version < localTS.Version:
+		return false, nil, fmt.Errorf("timestamp manifest has a version number < the old manifest (%v, %v)", ts.Version, localTS.Version)
+	case hash.Hashes[v1manifest.SHA256] != localTS.SnapshotHash().Hashes[v1manifest.SHA256]:
 		changed = true
 	}
 
@@ -778,7 +774,7 @@ func (r *V1Repository) ComponentVersion(id, ver string, includeYanked bool) (*v1
 		ver = manifest.Nightly
 	}
 	if ver == "" {
-		v, _, err := r.LatestStableVersion(id, includeYanked)
+		v, _, err := r.LatestStableVersion(id, includeYanked, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -806,7 +802,7 @@ func (r *V1Repository) LocalComponentVersion(id, ver string, includeYanked bool)
 		ver = manifest.Nightly
 	}
 	if ver == "" {
-		v, _, err := r.LatestStableVersion(id, includeYanked)
+		v, _, err := r.LatestStableVersion(id, includeYanked, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -847,14 +843,20 @@ func (r *V1Repository) ResolveComponentVersionWithPlatform(id, constraint, platf
 		return "", err
 	}
 	var ver string
-	switch constraint {
-	case "", utils.LatestVersionAlias:
-		v, _, err := r.LatestStableVersion(id, false)
+	switch {
+	case constraint == "" || strings.HasPrefix(constraint, utils.LatestVersionAlias):
+		var f func(string) bool
+		if strings.Contains(constraint, utils.NextgenVersionAlias) {
+			f = func(s string) bool {
+				return !strings.Contains(s, "nextgen") && !strings.Contains(s, "next-gen")
+			}
+		}
+		v, _, err := r.LatestStableVersion(id, false, f)
 		if err != nil {
 			return "", err
 		}
 		ver = v.String()
-	case utils.NightlyVersionAlias:
+	case strings.HasPrefix(constraint, utils.NightlyVersionAlias):
 		v, _, err := r.LatestNightlyVersion(id)
 		if err != nil {
 			return "", err
@@ -896,7 +898,7 @@ func (r *V1Repository) LatestNightlyVersion(id string) (utils.Version, *v1manife
 }
 
 // LatestStableVersion returns the latest stable version of specific component
-func (r *V1Repository) LatestStableVersion(id string, withYanked bool) (utils.Version, *v1manifest.VersionItem, error) {
+func (r *V1Repository) LatestStableVersion(id string, withYanked bool, filter func(string) bool) (utils.Version, *v1manifest.VersionItem, error) {
 	com, err := r.GetComponentManifest(id, withYanked)
 	if err != nil {
 		return "", nil, err
@@ -916,6 +918,9 @@ func (r *V1Repository) LatestStableVersion(id string, withYanked bool) (utils.Ve
 	var lastStable string
 	for v := range versions {
 		if utils.Version(v).IsNightly() {
+			continue
+		}
+		if filter != nil && filter(v) {
 			continue
 		}
 

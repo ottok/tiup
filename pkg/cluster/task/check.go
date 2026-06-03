@@ -68,10 +68,7 @@ func (c *CheckSys) Execute(ctx context.Context) error {
 	if len(stderr) > 0 && len(stdout) == 0 {
 		return ErrNoOutput
 	}
-	sudo := true
-	if c.topo.BaseTopo().GlobalOptions.SystemdMode == spec.UserMode {
-		sudo = false
-	}
+	sudo := c.topo.BaseTopo().GlobalOptions.SystemdMode != spec.UserMode
 	switch c.check {
 	case CheckTypeSystemInfo:
 		storeResults(ctx, c.host, operator.CheckSystemInfo(c.opt, stdout))
@@ -85,7 +82,8 @@ func (c *CheckSys) Execute(ctx context.Context) error {
 		}
 		results = append(
 			results,
-			operator.CheckSELinux(ctx, e, sudo),
+			operator.CheckSELinuxConf(ctx, e, sudo),
+			operator.CheckSELinuxStatus(ctx, e, sudo),
 			operator.CheckTHP(ctx, e, sudo),
 		)
 		storeResults(ctx, c.host, results)

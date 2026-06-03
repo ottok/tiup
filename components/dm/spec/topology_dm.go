@@ -36,10 +36,10 @@ const (
 )
 
 var (
-	globalOptionTypeName     = reflect.TypeOf(GlobalOptions{}).Name()
-	monitorOptionTypeName    = reflect.TypeOf(MonitoredOptions{}).Name()
-	serverConfigsTypeName    = reflect.TypeOf(DMServerConfigs{}).Name()
-	componentSourcesTypeName = reflect.TypeOf(ComponentSources{}).Name()
+	globalOptionTypeName     = reflect.TypeFor[GlobalOptions]().Name()
+	monitorOptionTypeName    = reflect.TypeFor[MonitoredOptions]().Name()
+	serverConfigsTypeName    = reflect.TypeFor[DMServerConfigs]().Name()
+	componentSourcesTypeName = reflect.TypeFor[ComponentSources]().Name()
 )
 
 func setDefaultDir(parent, role, port string, field reflect.Value) {
@@ -63,7 +63,7 @@ func findField(v reflect.Value, fieldName string) (int, bool) {
 
 // Skip global/monitored/job options
 func isSkipField(field reflect.Value) bool {
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		if field.IsZero() {
 			return true
 		}
@@ -132,7 +132,6 @@ type MasterSpec struct {
 	Host           string `yaml:"host"`
 	ManageHost     string `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort        int    `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported       bool   `yaml:"imported,omitempty"`
 	Patched        bool   `yaml:"patched,omitempty"`
 	IgnoreExporter bool   `yaml:"ignore_exporter,omitempty"`
 	// Use Name to get the name with a default value if it's empty.
@@ -195,11 +194,6 @@ func (s *MasterSpec) GetMainPort() int {
 	return s.Port
 }
 
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *MasterSpec) IsImported() bool {
-	return s.Imported
-}
-
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
 func (s *MasterSpec) IgnoreMonitorAgent() bool {
 	return s.IgnoreExporter
@@ -216,7 +210,7 @@ type WorkerSpec struct {
 	Host           string `yaml:"host"`
 	ManageHost     string `yaml:"manage_host,omitempty" validate:"manage_host:editable"`
 	SSHPort        int    `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported       bool   `yaml:"imported,omitempty"`
+	Imported       bool   `yaml:"-"`
 	Patched        bool   `yaml:"patched,omitempty"`
 	IgnoreExporter bool   `yaml:"ignore_exporter,omitempty"`
 	// Use Name to get the name with a default value if it's empty.
@@ -270,11 +264,6 @@ func (s *WorkerSpec) SSH() (string, int) {
 // GetMainPort returns the main port of the instance
 func (s *WorkerSpec) GetMainPort() int {
 	return s.Port
-}
-
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *WorkerSpec) IsImported() bool {
-	return s.Imported
 }
 
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
@@ -332,7 +321,7 @@ func (s *Specification) platformConflictsDetect() error {
 
 	platformStats := map[string]conflict{}
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -342,10 +331,6 @@ func (s *Specification) platformConflictsDetect() error {
 		compSpecs := topoSpec.Field(i)
 		for index := 0; index < compSpecs.Len(); index++ {
 			compSpec := reflect.Indirect(compSpecs.Index(index))
-			// skip nodes imported from TiDB-Ansible
-			if compSpec.Addr().Interface().(InstanceSpec).IsImported() {
-				continue
-			}
 			// check hostname
 			host := compSpec.FieldByName("Host").String()
 			cfg := topoType.Field(i).Tag.Get("yaml")
@@ -408,7 +393,7 @@ func (s *Specification) portConflictsDetect() error {
 	portStats := map[usedPort]conflict{}
 	uniqueHosts := set.NewStringSet()
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -418,10 +403,6 @@ func (s *Specification) portConflictsDetect() error {
 		compSpecs := topoSpec.Field(i)
 		for index := 0; index < compSpecs.Len(); index++ {
 			compSpec := reflect.Indirect(compSpecs.Index(index))
-			// skip nodes imported from TiDB-Ansible
-			if compSpec.Addr().Interface().(InstanceSpec).IsImported() {
-				continue
-			}
 			// check hostname
 			host := compSpec.FieldByName("Host").String()
 			cfg := topoType.Field(i).Tag.Get("yaml")
@@ -525,7 +506,7 @@ func (s *Specification) dirConflictsDetect() error {
 	)
 
 	topoSpec := reflect.ValueOf(s).Elem()
-	topoType := reflect.TypeOf(s).Elem()
+	topoType := reflect.TypeFor[Specification]()
 
 	for i := 0; i < topoSpec.NumField(); i++ {
 		if isSkipField(topoSpec.Field(i)) {
@@ -535,10 +516,6 @@ func (s *Specification) dirConflictsDetect() error {
 		compSpecs := topoSpec.Field(i)
 		for index := 0; index < compSpecs.Len(); index++ {
 			compSpec := reflect.Indirect(compSpecs.Index(index))
-			// skip nodes imported from TiDB-Ansible
-			if compSpec.Addr().Interface().(InstanceSpec).IsImported() {
-				continue
-			}
 			// check hostname
 			host := compSpec.FieldByName("Host").String()
 			cfg := topoType.Field(i).Tag.Get("yaml")
@@ -780,7 +757,7 @@ func setDMCustomDefaults(globalOptions *GlobalOptions, field reflect.Value) erro
 			return err
 		}
 		field.Set(ref.Elem())
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if err := setDMCustomDefaults(globalOptions, field.Elem()); err != nil {
 			return err
 		}

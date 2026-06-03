@@ -17,7 +17,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -41,7 +40,6 @@ type PDSpec struct {
 	AdvertiseClientAddr string `yaml:"advertise_client_addr,omitempty"`
 	AdvertisePeerAddr   string `yaml:"advertise_peer_addr,omitempty"`
 	SSHPort             int    `yaml:"ssh_port,omitempty" validate:"ssh_port:editable"`
-	Imported            bool   `yaml:"imported,omitempty"`
 	Patched             bool   `yaml:"patched,omitempty"`
 	IgnoreExporter      bool   `yaml:"ignore_exporter,omitempty"`
 	// Use Name to get the name with a default value if it's empty.
@@ -111,11 +109,6 @@ func (s *PDSpec) GetManageHost() string {
 		return s.ManageHost
 	}
 	return s.Host
-}
-
-// IsImported returns if the node is imported from TiDB-Ansible
-func (s *PDSpec) IsImported() bool {
-	return s.Imported
 }
 
 // IgnoreMonitorAgent returns if the node does not have monitor agents available
@@ -205,7 +198,7 @@ func (c *PDComponent) Instances() []Instance {
 				},
 				StatusFn: s.Status,
 				UptimeFn: func(_ context.Context, timeout time.Duration, tlsCfg *tls.Config) time.Duration {
-					return UptimeByHost(s.GetManageHost(), s.ClientPort, timeout, tlsCfg)
+					return UptimeByHost(s.GetManageHost(), s.ClientPort, timeout, tlsCfg, "")
 				},
 				Component: c,
 			},
@@ -273,27 +266,6 @@ func (i *PDInstance) InitConfig(
 	}
 
 	globalConfig := topo.ServerConfigs.PD
-	// merge config files for imported instance
-	if i.IsImported() {
-		configPath := ClusterPath(
-			clusterName,
-			AnsibleImportedConfigPath,
-			fmt.Sprintf(
-				"%s-%s-%d.toml",
-				i.ComponentName(),
-				i.GetHost(),
-				i.GetPort(),
-			),
-		)
-		importConfig, err := os.ReadFile(configPath)
-		if err != nil {
-			return err
-		}
-		globalConfig, err = mergeImported(importConfig, globalConfig)
-		if err != nil {
-			return err
-		}
-	}
 
 	// set TLS configs
 	spec.Config, err = i.setTLSConfig(ctx, enableTLS, spec.Config, paths)
@@ -491,7 +463,7 @@ func (i *PDInstance) PostRestart(ctx context.Context, topo Topology, tlsCfg *tls
 		return errors.Annotatef(err, "failed to start PD peer %s", i.GetHost())
 	}
 
-	if updcfg.TargetVersion != "" && tidbver.PDSupportReadyAPI(updcfg.TargetVersion) {
+	if updcfg != nil && updcfg.TargetVersion != "" && tidbver.PDSupportReadyAPI(updcfg.TargetVersion) {
 		if err := utils.Retry(pdClient.CheckReady, timeoutOpt); err != nil {
 			return errors.Annotatef(err, "failed to wait PD load all regions %s", i.GetHost())
 		}

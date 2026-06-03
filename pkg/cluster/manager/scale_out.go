@@ -99,15 +99,11 @@ func (m *Manager) ScaleOut(
 		if newPartTopo, ok := newPart.(*spec.Specification); ok {
 			newPartTopo.AdjustByVersion(base.Version)
 		}
-
-		if err := validateNewTopo(newPart); err != nil {
-			return err
-		}
 	}
 
 	var (
-		sshConnProps  *tui.SSHConnectionProps = &tui.SSHConnectionProps{}
-		sshProxyProps *tui.SSHConnectionProps = &tui.SSHConnectionProps{}
+		sshConnProps  = &tui.SSHConnectionProps{}
+		sshProxyProps = &tui.SSHConnectionProps{}
 	)
 	if gOpt.SSHType != executor.SSHTypeNone {
 		var err error
@@ -230,21 +226,6 @@ You need to execute '%s' to start the new instance.`, color.YellowString("tiup c
 	return nil
 }
 
-// validateNewTopo checks the new part of scale-out topology to make sure it's supported
-func validateNewTopo(topo spec.Topology) (err error) {
-	topo.IterInstance(func(instance spec.Instance) {
-		// check for "imported" parameter, it can not be true when scaling out
-		if instance.IsImported() {
-			err = errors.New(
-				"'imported' is set to 'true' for new instance, this is only used " +
-					"for instances imported from tidb-ansible and make no sense when " +
-					"scaling out, please delete the line or set it to 'false' for new instances")
-			return
-		}
-	})
-	return err
-}
-
 // checkForGlobalConfigs checks the input scale out topology to make sure users are aware
 // of the global config fields in it will be ignored.
 func checkForGlobalConfigs(logger *logprinter.Logger, topoFile string, skipConfirm bool) error {
@@ -306,7 +287,7 @@ func checkScaleOutLock(m *Manager, name string, opt DeployOptions, skipConfirm b
 
 	if opt.Stage2 {
 		if !locked {
-			return fmt.Errorf("The scale-out file lock does not exist, please make sure to run 'tiup-cluster scale-out %s --stage1' first", name)
+			return fmt.Errorf("the scale-out file lock does not exist, please make sure to run 'tiup-cluster scale-out %s --stage1' first", name)
 		}
 
 		m.logger.Warnf(`The parameter '%s' is set, only start the new instances and reload configs.`, color.YellowString("--stage2"))

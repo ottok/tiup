@@ -23,9 +23,26 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tiup/pkg/cluster/spec"
+	"github.com/pingcap/tiup/pkg/environment"
 	tiupexec "github.com/pingcap/tiup/pkg/exec"
 	"github.com/pingcap/tiup/pkg/tui/colorstr"
 	"github.com/pingcap/tiup/pkg/utils"
+)
+
+// Mode of playground
+type Mode = string
+
+var (
+	// ModeNormal is the default mode.
+	ModeNormal = "tidb"
+	// ModeCSE is for CSE testing.
+	ModeCSE = "tidb-cse"
+	// ModeNextGen is for NG testing.
+	ModeNextGen = "tidb-x"
+	// ModeDisAgg is for tiflash testing.
+	ModeDisAgg = "tiflash-disagg"
+	// ModeTiKVSlim is for special tikv testing.
+	ModeTiKVSlim = "tikv-slim"
 )
 
 // Config of the instance.
@@ -44,11 +61,12 @@ type Config struct {
 type SharedOptions struct {
 	/// Whether or not to tune the cluster in order to run faster (instead of easier to debug).
 	HighPerf           bool       `yaml:"high_perf"`
-	CSE                CSEOptions `yaml:"cse"` // Only available when mode == tidb-cse or tiflash-disagg
+	CSE                CSEOptions `yaml:"cse"` // Only available when mode == ModeCSE or ModeDisAgg
 	PDMode             string     `yaml:"pd_mode"`
 	Mode               string     `yaml:"mode"`
 	PortOffset         int        `yaml:"port_offset"`
-	EnableTiKVColumnar bool       `yaml:"enable_tikv_columnar"` // Only available when mode == tidb-cse
+	EnableTiKVColumnar bool       `yaml:"enable_tikv_columnar"` // Only available when mode == ModeCSE
+	ForcePull          bool       `yaml:"force_pull"`
 }
 
 // CSEOptions contains configs to run TiDB cluster in CSE mode.
@@ -68,6 +86,8 @@ type instance struct {
 	ConfigPath string
 	BinPath    string
 	Version    utils.Version
+	proc       Process
+	role       string
 }
 
 // MetricAddr will be used by prometheus scrape_configs.
@@ -78,23 +98,55 @@ type MetricAddr struct {
 
 // Instance represent running component
 type Instance interface {
-	Pid() int
 	// Start the instance process.
 	// Will kill the process once the context is done.
 	Start(ctx context.Context) error
-	// Component Return the component name.
+	// Name Return the display name.
+	Name() string
+	// Component returns the package name.
 	Component() string
+	// Role returns the role of the package.
+	// It is used to start binaries differently for the same package.
+	// For example, start PD in microservice mode, or start TiDB with another configuration.
+	Role() string
 	// LogFile return the log file name
 	LogFile() string
-	// Uptime show uptime.
-	Uptime() string
 	// MetricAddr return the address to pull metrics.
 	MetricAddr() MetricAddr
 	// Wait Should only call this if the instance is started successfully.
 	// The implementation should be safe to call Wait multi times.
 	Wait() error
+	// Proc return the underlying process.
+	Process() Process
 	// PrepareBinary use given binpath or download from tiup mirrors.
-	PrepareBinary(binaryName string, componentName string, version utils.Version) error
+	PrepareBinary(binaryName string, componentName string, version string, force bool) error
+	// PrepareProcess construct the process used later.
+	PrepareProcess(ctx context.Context, binPath string, args, envs []string, workDir string) error
+}
+
+func (inst *instance) Name() string {
+	return fmt.Sprintf("%s-%d", inst.Role(), inst.ID)
+}
+
+func (inst *instance) Component() string {
+	return inst.role
+}
+
+func (inst *instance) Role() string {
+	return inst.role
+}
+
+func (inst *instance) Wait() error {
+	return inst.proc.Wait()
+}
+
+func (inst *instance) PrepareProcess(ctx context.Context, binPath string, args, envs []string, workDir string) error {
+	inst.proc = &process{cmd: PrepareCommand(ctx, binPath, args, envs, workDir)}
+	return nil
+}
+
+func (inst *instance) Process() Process {
+	return inst.proc
 }
 
 func (inst *instance) MetricAddr() (r MetricAddr) {
@@ -104,8 +156,15 @@ func (inst *instance) MetricAddr() (r MetricAddr) {
 	return
 }
 
-func (inst *instance) PrepareBinary(binaryName string, componentName string, version utils.Version) error {
-	instanceBinPath, err := tiupexec.PrepareBinary(binaryName, version, inst.BinPath)
+func (inst *instance) PrepareBinary(binaryName string, componentName string, boundVersion string, force bool) error {
+	var version utils.Version
+	var err error
+	if inst.BinPath == "" {
+		if version, err = environment.GlobalEnv().V1Repository().ResolveComponentVersion(binaryName, boundVersion); err != nil {
+			return err
+		}
+	}
+	instanceBinPath, err := tiupexec.PrepareBinary(binaryName, version, inst.BinPath, force)
 	if err != nil {
 		return err
 	}
@@ -115,7 +174,7 @@ func (inst *instance) PrepareBinary(binaryName string, componentName string, ver
 	} else {
 		colorstr.Printf("[dark_gray]Start %s instance: %s[reset]\n", componentName, instanceBinPath)
 	}
-	inst.Version = version
+	inst.Version = utils.Version(boundVersion)
 	inst.BinPath = instanceBinPath
 	return nil
 }
@@ -147,16 +206,11 @@ func AdvertiseHost(listen string) string {
 	return listen
 }
 
-func logIfErr(err error) {
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
 func pdEndpoints(pds []*PDInstance, isHTTP bool) []string {
 	var endpoints []string
 	for _, pd := range pds {
-		if pd.role == PDRoleTSO || pd.role == PDRoleScheduling {
+		if pd.Role() == PDRoleTSO || pd.Role() == PDRoleScheduling ||
+			pd.Role() == PDRoleRouter || pd.Role() == PDRoleResourceManager {
 			continue
 		}
 		if isHTTP {

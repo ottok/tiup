@@ -49,7 +49,7 @@ func (m *Manager) Reload(name string, gOpt operator.Options, skipRestart, skipCo
 		return err
 	}
 
-	var sshProxyProps *tui.SSHConnectionProps = &tui.SSHConnectionProps{}
+	var sshProxyProps = &tui.SSHConnectionProps{}
 	if gOpt.SSHType != executor.SSHTypeNone && len(gOpt.SSHProxyHost) != 0 {
 		var err error
 		if sshProxyProps, err = tui.ReadIdentityFileOrPassword(gOpt.SSHProxyIdentity, gOpt.SSHProxyUsePassword); err != nil {
@@ -77,14 +77,7 @@ func (m *Manager) Reload(name string, gOpt operator.Options, skipRestart, skipCo
 	uniqueHosts, noAgentHosts := getMonitorHosts(topo)
 
 	// init config
-	refreshConfigTasks, hasImported := buildInitConfigTasks(m, name, topo, base, gOpt, nil)
-
-	// handle dir scheme changes
-	if hasImported {
-		if err := spec.HandleImportPathMigration(name); err != nil {
-			return err
-		}
-	}
+	refreshConfigTasks := buildInitConfigTasks(m, name, topo, base, gOpt, nil)
 
 	monitorConfigTasks := buildInitMonitoredConfigTasks(
 		m.specManager,
