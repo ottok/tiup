@@ -16,6 +16,7 @@ package config
 import (
 	"bytes"
 	"path"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -26,14 +27,17 @@ import (
 
 // PrometheusConfig represent the data to generate Prometheus config
 type PrometheusConfig struct {
-	ClusterName               string
-	ScrapeInterval            string
-	ScrapeTimeout             string
-	TLSEnabled                bool
+	ClusterName    string
+	ScrapeInterval string
+	ScrapeTimeout  string
+	TLSEnabled     bool
+	// ExternalLabels holds user-defined entries merged into global.external_labels.
+	ExternalLabels            map[string]string
 	NodeExporterAddrs         []string
 	TiDBStatusAddrs           []string
 	TiProxyStatusAddrs        []string
 	TiKVStatusAddrs           []string
+	TiKVWorkerAddrs           []string
 	PDAddrs                   []string
 	TSOAddrs                  []string
 	SchedulingAddrs           []string
@@ -94,6 +98,12 @@ func (c *PrometheusConfig) AddTiProxy(ip string, port uint64) *PrometheusConfig 
 // AddTiKV add a TiKV address
 func (c *PrometheusConfig) AddTiKV(ip string, port uint64) *PrometheusConfig {
 	c.TiKVStatusAddrs = append(c.TiKVStatusAddrs, utils.JoinHostPort(ip, int(port)))
+	return c
+}
+
+// AddTiKVWorker add a tikv-worker address.
+func (c *PrometheusConfig) AddTiKVWorker(ip string, port uint64) *PrometheusConfig {
+	c.TiKVWorkerAddrs = append(c.TiKVWorkerAddrs, utils.JoinHostPort(ip, int(port)))
 	return c
 }
 
@@ -235,6 +245,20 @@ func (c *PrometheusConfig) SetRemoteConfig(cfg string) *PrometheusConfig {
 	return c
 }
 
+// SetExternalLabels sets custom Prometheus external labels.
+func (c *PrometheusConfig) SetExternalLabels(labels map[string]string) *PrometheusConfig {
+	if len(labels) == 0 {
+		return c
+	}
+
+	// Copy the input map so later caller mutations do not change the config object.
+	c.ExternalLabels = make(map[string]string, len(labels))
+	for key, value := range labels {
+		c.ExternalLabels[key] = value
+	}
+	return c
+}
+
 // Config generate the config file data.
 func (c *PrometheusConfig) Config() ([]byte, error) {
 	fp := path.Join("templates", "config", "prometheus.yml.tpl")
@@ -281,7 +305,10 @@ func (c *PrometheusConfig) ConfigWithAgentMode(enableAgent bool) ([]byte, error)
 
 // ConfigWithTemplate generate the Prometheus config content by tpl
 func (c *PrometheusConfig) ConfigWithTemplate(tpl string) ([]byte, error) {
-	tmpl, err := template.New("Prometheus").Parse(tpl)
+	// yamlQuote keeps label values valid even when they contain quotes or other special characters.
+	tmpl, err := template.New("Prometheus").Funcs(template.FuncMap{
+		"yamlQuote": strconv.Quote,
+	}).Parse(tpl)
 	if err != nil {
 		return nil, err
 	}

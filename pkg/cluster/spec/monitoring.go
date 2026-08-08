@@ -54,6 +54,7 @@ type PrometheusSpec struct {
 	PromRemoteWriteToVM   bool                   `yaml:"prom_remote_write_to_vm,omitempty" validate:"prom_remote_write_to_vm:editable"` // Enable remote write to ng-monitoring
 	EnablePromAgentMode   bool                   `yaml:"enable_prom_agent_mode,omitempty" validate:"enable_prom_agent_mode:editable"`   // Enable Prometheus agent mode
 	RemoteConfig          Remote                 `yaml:"remote_config,omitempty" validate:"remote_config:ignore"`
+	ExternalLabels        map[string]string      `yaml:"external_labels,omitempty" validate:"external_labels:ignore"`
 	ExternalAlertmanagers []ExternalAlertmanager `yaml:"external_alertmanagers" validate:"external_alertmanagers:ignore"`
 	PushgatewayAddrs      []string               `yaml:"pushgateway_addrs,omitempty" validate:"pushgateway_addrs:ignore"`
 	Retention             string                 `yaml:"storage_retention,omitempty" validate:"storage_retention:editable"` // deprecated
@@ -296,11 +297,7 @@ func (i *MonitorInstance) InitConfig(
 	cfg.RetentionSize = getRetentionSize(logPtr, spec.RetentionSize)
 
 	// Check if agent mode is enabled in additional arguments
-	if !cfg.EnablePromAgentMode {
-		if slices.Contains(spec.AdditionalArgs, "--enable-feature=agent") {
-			cfg.EnablePromAgentMode = true
-		}
-	}
+	cfg.EnablePromAgentMode = cfg.EnablePromAgentMode || slices.Contains(spec.AdditionalArgs, "--enable-feature=agent")
 
 	fp := filepath.Join(paths.Cache, fmt.Sprintf("run_prometheus_%s_%d.sh", i.GetHost(), i.GetPort()))
 	if err := cfg.ConfigToFile(fp); err != nil {
@@ -323,6 +320,8 @@ func (i *MonitorInstance) InitConfig(
 
 	// transfer config
 	cfig := config.NewPrometheusConfig(clusterName, clusterVersion, enableTLS)
+	// Pass topology external_labels through to the Prometheus config object.
+	cfig.SetExternalLabels(spec.ExternalLabels)
 	if monitoredOptions != nil {
 		cfig.AddBlackbox(i.GetHost(), uint64(monitoredOptions.BlackboxExporterPort))
 	}
@@ -370,6 +369,13 @@ func (i *MonitorInstance) InitConfig(
 			kv := servers.Index(i).Interface().(*TiKVSpec)
 			uniqueHosts.Insert(kv.Host)
 			cfig.AddTiKV(kv.Host, uint64(kv.StatusPort))
+		}
+	}
+	if servers, found := topoHasField("TiKVWorkerServers"); found {
+		for i := 0; i < servers.Len(); i++ {
+			worker := servers.Index(i).Interface().(*TiKVWorkerSpec)
+			uniqueHosts.Insert(worker.Host)
+			cfig.AddTiKVWorker(worker.Host, uint64(worker.Port))
 		}
 	}
 	if servers, found := topoHasField("TiDBServers"); found {

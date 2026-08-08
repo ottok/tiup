@@ -12,6 +12,10 @@ global:
   external_labels:
     cluster: '{{.ClusterName}}'
     monitor: "prometheus"
+{{- /* Render user-defined external_labels from the topology into Prometheus global labels. */}}
+{{- range $key, $value := .ExternalLabels}}
+    {{$key}}: {{yamlQuote $value}}
+{{- end}}
 
 # Load and evaluate rules in this file every 'evaluation_interval' seconds.
 rule_files:
@@ -145,6 +149,23 @@ scrape_configs:
     - targets:
 {{- range .TiKVStatusAddrs}}
       - '{{.}}'
+{{- end}}
+{{- if .TiKVWorkerAddrs}}
+  - job_name: "tikv-worker"
+    honor_labels: true # don't overwrite job & instance labels
+{{- if .TLSEnabled}}
+    scheme: https
+    tls_config:
+      insecure_skip_verify: false
+      ca_file: ../tls/ca.crt
+      cert_file: ../tls/prometheus.crt
+      key_file: ../tls/prometheus.pem
+{{- end}}
+    static_configs:
+    - targets:
+{{- range .TiKVWorkerAddrs}}
+      - '{{.}}'
+{{- end}}
 {{- end}}
   - job_name: "pd"
     honor_labels: true # don't overwrite job & instance labels
@@ -377,6 +398,14 @@ scrape_configs:
     {{- end}}
       labels:
         group: 'tikv'
+{{- if .TiKVWorkerAddrs}}
+    - targets:
+    {{- range .TiKVWorkerAddrs}}
+      - '{{.}}'
+    {{- end}}
+      labels:
+        group: 'tikv-worker'
+{{- end}}
     - targets:
     {{- range .PDAddrs}}
       - '{{.}}'
