@@ -54,6 +54,8 @@ var (
 var (
 	reUser  = regexp.MustCompile(`^[a-z_]([a-z0-9_-]{0,31}|[a-z0-9_-]{0,30}\$)$`)
 	reGroup = regexp.MustCompile(`^[a-z_]([a-z0-9_-]{0,15})$`)
+	// Prometheus label names must start with a letter or underscore and then use letters, digits, or underscores.
+	rePrometheusLabelName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
 func fixDir(topo Topology) func(string) string {
@@ -919,6 +921,7 @@ func (s *Specification) validateTLSEnabled() error {
 			ComponentResourceManager,
 			ComponentTiDB,
 			ComponentTiKV,
+			ComponentTiKVWorker,
 			ComponentTiFlash,
 			ComponentTiProxy,
 			ComponentPump,
@@ -1036,6 +1039,39 @@ func (s *Specification) validateTiFlashConfigs() error {
 	return nil
 }
 
+func (s *Specification) validatePrometheusExternalLabels() error {
+	// cluster and monitor are injected by TiUP and cannot be overridden by user input.
+	reservedLabels := set.NewStringSet("cluster", "monitor")
+	for _, monitor := range s.Monitors {
+		for label := range monitor.ExternalLabels {
+			if reservedLabels.Exist(label) {
+				return errors.Errorf(
+					"monitoring_servers:%s.external_labels contains reserved label '%s'",
+					monitor.Host,
+					label,
+				)
+			}
+			// Labels starting with __ are reserved by Prometheus internals and are rejected here.
+			if strings.HasPrefix(label, "__") {
+				return errors.Errorf(
+					"monitoring_servers:%s.external_labels contains invalid label name '%s': labels starting with '__' are reserved",
+					monitor.Host,
+					label,
+				)
+			}
+			// Apply the Prometheus label name rules after the explicit reserved-name checks.
+			if !rePrometheusLabelName.MatchString(label) {
+				return errors.Errorf(
+					"monitoring_servers:%s.external_labels contains invalid label name '%s'",
+					monitor.Host,
+					label,
+				)
+			}
+		}
+	}
+	return nil
+}
+
 // validateMonitorAgent checks for conflicts in topology for different ignore_exporter
 // settings for multiple instances on the same host / IP
 func (s *Specification) validateMonitorAgent() error {
@@ -1107,6 +1143,7 @@ func (s *Specification) Validate() error {
 		s.validateResourceManagerNames,
 		s.validateTiSparkSpec,
 		s.validateTiFlashConfigs,
+		s.validatePrometheusExternalLabels,
 		s.validateMonitorAgent,
 	}
 

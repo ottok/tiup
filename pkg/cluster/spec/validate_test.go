@@ -647,6 +647,64 @@ func TestRelativePathDetect(t *testing.T) {
 	}
 }
 
+func TestPrometheusExternalLabels(t *testing.T) {
+	topo := Specification{}
+	// Allow user-defined external labels to round-trip into the monitor spec.
+	err := yaml.Unmarshal([]byte(`
+monitoring_servers:
+  - host: 172.16.5.138
+    external_labels:
+      environment: production
+      region: us-east-1
+`), &topo)
+	require.NoError(t, err)
+	require.Equal(t, "production", topo.Monitors[0].ExternalLabels["environment"])
+	require.Equal(t, "us-east-1", topo.Monitors[0].ExternalLabels["region"])
+
+	topo = Specification{}
+	// Reject labels reserved for the built-in TiUP metadata.
+	err = yaml.Unmarshal([]byte(`
+monitoring_servers:
+  - host: 172.16.5.138
+    external_labels:
+      cluster: production
+`), &topo)
+	require.Error(t, err)
+	require.Equal(t, "monitoring_servers:172.16.5.138.external_labels contains reserved label 'cluster'", err.Error())
+
+	topo = Specification{}
+	err = yaml.Unmarshal([]byte(`
+monitoring_servers:
+  - host: 172.16.5.138
+    external_labels:
+      monitor: production
+`), &topo)
+	require.Error(t, err)
+	require.Equal(t, "monitoring_servers:172.16.5.138.external_labels contains reserved label 'monitor'", err.Error())
+
+	topo = Specification{}
+	// Reject names that violate the Prometheus label naming rules.
+	err = yaml.Unmarshal([]byte(`
+monitoring_servers:
+  - host: 172.16.5.138
+    external_labels:
+      1region: us-east-1
+`), &topo)
+	require.Error(t, err)
+	require.Equal(t, "monitoring_servers:172.16.5.138.external_labels contains invalid label name '1region'", err.Error())
+
+	topo = Specification{}
+	// Reject the Prometheus-reserved __* label namespace.
+	err = yaml.Unmarshal([]byte(`
+monitoring_servers:
+  - host: 172.16.5.138
+    external_labels:
+      __replica__: tiflash
+`), &topo)
+	require.Error(t, err)
+	require.Equal(t, "monitoring_servers:172.16.5.138.external_labels contains invalid label name '__replica__': labels starting with '__' are reserved", err.Error())
+}
+
 func TestTiKVLocationLabelsCheck(t *testing.T) {
 	// 2 tikv on different host
 	topo := Specification{}
