@@ -1,3 +1,9 @@
+tiup (1.17.0-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+
+ -- Otto Kekäläinen <otto@debian.org>  Sat, 08 Aug 2026 17:49:07 +0000
+
 tiup (1.16.5-1) unstable; urgency=medium
 
   * New upstream release
