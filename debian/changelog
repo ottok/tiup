@@ -1,8 +1,10 @@
-tiup (1.17.0-1) UNRELEASED; urgency=medium
+tiup (1.17.0-1) unstable; urgency=medium
 
   * New upstream release
+  * Stop using `--builddirectory`
+  * Bump Debhelper version from 13 to 14
 
- -- Otto Kekäläinen <otto@debian.org>  Sat, 08 Aug 2026 17:49:07 +0000
+ -- Otto Kekäläinen <otto@debian.org>  Sun, 09 Aug 2026 14:14:14 +0000
 
 tiup (1.16.5-1) unstable; urgency=medium
 
