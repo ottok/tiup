@@ -1,1 +1,10 @@
 debian/root.json usr/share/tiup/
+usr/bin/tiup
+usr/bin/tiup-client
+usr/bin/tiup-cluster
+usr/bin/tiup-ctl
+usr/bin/tiup-dm
+usr/bin/tiup-package
+usr/bin/tiup-playground
+usr/bin/tiup-playground-ng
+usr/bin/tiup-server

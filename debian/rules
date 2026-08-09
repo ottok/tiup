@@ -14,7 +14,7 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	dh_auto_install -- --no-source
-	(cd debian/tiup/usr/bin/ && for x in *; do mv $$x tiup-$$x; done; mv tiup-tiup tiup)
+	(cd debian/tmp/usr/bin/ && for x in *; do mv $$x tiup-$$x; done; mv tiup-tiup tiup)
 
 # Without --buildsystem=golang Debhelper will try to run the Makefile instead
 # while in this package the correct way to build is with Go
